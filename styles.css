@@ -1,0 +1,451 @@
+/* ============================================================
+   PLANT LIFE — Main Stylesheet
+   ============================================================ */
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg-dark:    #0d1117;
+  --bg-mid:     #161b22;
+  --bg-panel:   #1c2128;
+  --border:     #30363d;
+  --text:       #e6edf3;
+  --text-muted: #7d8590;
+  --accent:     #3fb950;
+  --accent2:    #58a6ff;
+  --danger:     #f85149;
+  --warn:       #d29922;
+
+  --energy-col:   #f0c040;
+  --water-col:    #4fc3f7;
+  --o2-col:       #81c784;
+  --co2-col:      #ce93d8;
+  --nutrients-col:#ffb74d;
+  --health-col:   #ef9a9a;
+}
+
+body {
+  background: var(--bg-dark);
+  color: var(--text);
+  font-family: 'Segoe UI', system-ui, sans-serif;
+  height: 100vh;
+  overflow: hidden;
+}
+
+/* ── Screens ─────────────────────────────────────────────── */
+.screen { display: none; width: 100%; height: 100vh; }
+.screen.active { display: flex; }
+
+/* ── Start Screen ────────────────────────────────────────── */
+#screen-start {
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  overflow-y: auto;
+  padding: 40px 20px 60px;
+  background: radial-gradient(ellipse at 50% 0%, #0e2a0e 0%, #0d1117 70%);
+}
+
+.game-title {
+  font-size: 3.5rem;
+  font-weight: 800;
+  letter-spacing: 0.2em;
+  color: var(--accent);
+  text-shadow: 0 0 40px #3fb95066;
+  margin-bottom: 8px;
+}
+
+.game-subtitle {
+  color: var(--text-muted);
+  font-size: 1rem;
+  margin-bottom: 40px;
+  letter-spacing: 0.05em;
+}
+
+.start-content { width: 100%; max-width: 900px; }
+
+.biome-section h2,
+.seed-section h2 {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+/* ── Biome Cards ─────────────────────────────────────────── */
+.biome-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 12px;
+  margin-bottom: 36px;
+}
+
+.biome-card {
+  background: var(--bg-panel);
+  border: 2px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 16px;
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.15s, box-shadow 0.2s;
+  text-align: center;
+}
+
+.biome-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px #3fb95022;
+}
+
+.biome-card.selected {
+  border-color: var(--accent);
+  background: #1a2e1a;
+  box-shadow: 0 0 20px #3fb95033;
+}
+
+.biome-card .biome-icon { font-size: 2.5rem; margin-bottom: 10px; display: block; }
+.biome-card .biome-name { font-weight: 600; font-size: 0.95rem; margin-bottom: 4px; }
+.biome-card .biome-desc { color: var(--text-muted); font-size: 0.75rem; line-height: 1.4; }
+
+/* ── Seed Cards ──────────────────────────────────────────── */
+.seed-section { margin-bottom: 28px; }
+
+.seed-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 10px;
+}
+
+.seed-card {
+  background: var(--bg-panel);
+  border: 2px solid var(--border);
+  border-radius: 10px;
+  padding: 16px 12px;
+  cursor: pointer;
+  transition: border-color 0.2s, transform 0.15s;
+  text-align: center;
+}
+
+.seed-card:hover { border-color: var(--accent2); transform: translateY(-2px); }
+.seed-card.selected { border-color: var(--accent2); background: #16233a; }
+.seed-card .seed-icon { font-size: 2rem; margin-bottom: 8px; display: block; }
+.seed-card .seed-name { font-weight: 600; font-size: 0.85rem; }
+.seed-card .seed-rarity {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-top: 4px;
+  padding: 2px 6px;
+  border-radius: 20px;
+  display: inline-block;
+}
+.rarity-common   { background: #2a2a2a; color: #aaa; }
+.rarity-uncommon { background: #1a3020; color: #4caf50; }
+.rarity-rare     { background: #1a2040; color: #64b5f6; }
+
+/* ── Seed Preview ────────────────────────────────────────── */
+.seed-preview {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+}
+
+.seed-preview h3 { font-size: 1.3rem; margin-bottom: 8px; color: var(--accent2); }
+.seed-preview p  { color: var(--text-muted); margin-bottom: 16px; line-height: 1.5; }
+
+.preview-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 8px;
+  margin-bottom: 20px;
+}
+
+.preview-stat {
+  background: var(--bg-dark);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 0.8rem;
+}
+
+.preview-stat .stat-label { color: var(--text-muted); margin-bottom: 4px; }
+.preview-stat .stat-bar-wrap {
+  height: 6px; background: #333; border-radius: 3px; overflow: hidden;
+}
+.preview-stat .stat-bar { height: 100%; border-radius: 3px; }
+
+/* ── Buttons ─────────────────────────────────────────────── */
+.btn-primary {
+  background: var(--accent);
+  color: #000;
+  border: none;
+  padding: 12px 28px;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.2s, transform 0.1s;
+  letter-spacing: 0.05em;
+}
+.btn-primary:hover { background: #56d364; transform: translateY(-1px); }
+
+/* ── Game Layout ─────────────────────────────────────────── */
+#screen-game { flex-direction: row; }
+
+.game-layout {
+  display: flex;
+  width: 100%;
+  height: 100vh;
+}
+
+/* ── Plant Panel ─────────────────────────────────────────── */
+.panel-plant {
+  flex: 1;
+  background: #080e08;
+  position: relative;
+  overflow: hidden;
+}
+
+.plant-viewport {
+  width: 100%;
+  height: 100%;
+  position: relative;
+}
+
+#plant-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.time-display {
+  position: absolute;
+  top: 12px;
+  left: 16px;
+  background: rgba(0,0,0,0.6);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  backdrop-filter: blur(4px);
+}
+
+.biome-label {
+  position: absolute;
+  top: 12px;
+  right: 16px;
+  background: rgba(0,0,0,0.6);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  backdrop-filter: blur(4px);
+}
+
+/* ── Controls Panel ──────────────────────────────────────── */
+.panel-controls {
+  width: 320px;
+  background: var(--bg-mid);
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 12px;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.panel-title {
+  font-size: 0.65rem;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+/* ── Resource Bars ───────────────────────────────────────── */
+.resource-panel,
+.stats-panel,
+.actions-panel,
+.root-panel,
+.log-panel,
+.speed-panel {
+  background: var(--bg-panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px;
+}
+
+.resource-bar-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.resource-bar-row:last-child { margin-bottom: 0; }
+
+.res-icon { font-size: 0.9rem; width: 20px; text-align: center; }
+.res-label { font-size: 0.7rem; color: var(--text-muted); width: 70px; flex-shrink: 0; }
+.res-bar-wrap {
+  flex: 1;
+  height: 8px;
+  background: #1a1a1a;
+  border-radius: 4px;
+  overflow: hidden;
+  position: relative;
+}
+.res-bar {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+.res-value {
+  font-size: 0.65rem;
+  color: var(--text-muted);
+  width: 34px;
+  text-align: right;
+  flex-shrink: 0;
+}
+
+/* ── Stat Grid ───────────────────────────────────────────── */
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.stat-item {
+  background: var(--bg-dark);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.stat-item .stat-name { font-size: 0.65rem; color: var(--text-muted); margin-bottom: 2px; }
+.stat-item .stat-val  { font-size: 0.9rem; font-weight: 600; }
+
+/* ── Action Buttons ──────────────────────────────────────── */
+.action-buttons { display: flex; flex-direction: column; gap: 7px; }
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  color: var(--text);
+  font-size: 0.85rem;
+  text-align: left;
+  width: 100%;
+}
+
+.action-btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: #1a2e1a;
+}
+
+.action-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.action-btn.active-action {
+  border-color: var(--accent);
+  background: #1a2e1a;
+  box-shadow: 0 0 8px #3fb95030;
+}
+
+.action-btn .act-icon { font-size: 1.2rem; }
+.action-btn .act-info { flex: 1; }
+.action-btn .act-name { font-weight: 600; font-size: 0.85rem; }
+.action-btn .act-cost { font-size: 0.7rem; color: var(--text-muted); }
+
+/* ── Root Options ────────────────────────────────────────── */
+.root-options { display: flex; flex-direction: column; gap: 6px; }
+
+.root-btn {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 12px;
+  cursor: pointer;
+  color: var(--text);
+  font-size: 0.8rem;
+  text-align: left;
+  transition: border-color 0.15s;
+  width: 100%;
+}
+.root-btn:hover { border-color: var(--water-col); }
+.root-btn.selected-root { border-color: var(--water-col); background: #0d2535; }
+.root-btn strong { display: block; margin-bottom: 2px; }
+.root-btn span { color: var(--text-muted); font-size: 0.7rem; }
+
+/* ── Log ─────────────────────────────────────────────────── */
+.log-entries {
+  max-height: 120px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.log-entry {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  padding: 3px 0;
+  border-bottom: 1px solid #1a1a1a;
+  line-height: 1.4;
+}
+
+.log-entry.log-good  { color: var(--accent); }
+.log-entry.log-warn  { color: var(--warn); }
+.log-entry.log-danger{ color: var(--danger); }
+.log-entry .log-day  { color: #444; margin-right: 6px; }
+
+/* ── Speed Controls ──────────────────────────────────────── */
+.speed-panel {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.btn-speed {
+  flex: 1;
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 6px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+  min-width: 44px;
+}
+
+.btn-speed:hover { border-color: var(--accent2); color: var(--text); }
+.btn-speed.active { border-color: var(--accent2); color: var(--accent2); background: #0d1f2e; }
+
+.btn-danger {
+  background: var(--bg-dark);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 7px 10px;
+  color: var(--danger);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: border-color 0.15s;
+}
+.btn-danger:hover { border-color: var(--danger); }
+
+/* ── Scrollbar ───────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #444; }

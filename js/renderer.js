@@ -1,0 +1,422 @@
+// ============================================================
+// renderer.js — Canvas-based plant visualiser
+// ============================================================
+
+const SKY_TOP    = '#0a0f1a';
+const SKY_BOTTOM = '#1a2a1a';
+const SOIL_TOP   = '#2a1a0a';
+const SOIL_BOT   = '#150d04';
+const DEEP_WATER = '#0a1528';
+
+// Biome sky palette
+const BIOME_SKY = {
+  plains:   ['#1a2e4a', '#2d4a1a'],
+  forest:   ['#0d1f0d', '#1a2e1a'],
+  desert:   ['#2e1a0a', '#3d2a0a'],
+  wetlands: ['#0d1a1a', '#1a2e2a'],
+  mountain: ['#0d0d1a', '#1a1a2e'],
+  tropical: ['#0a1a0a', '#1a2e1a'],
+};
+
+export class PlantRenderer {
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx    = canvas.getContext('2d');
+    this.resize();
+    window.addEventListener('resize', () => this.resize());
+  }
+
+  resize() {
+    const rect        = this.canvas.parentElement.getBoundingClientRect();
+    this.canvas.width  = rect.width  || 600;
+    this.canvas.height = rect.height || 700;
+    this.W = this.canvas.width;
+    this.H = this.canvas.height;
+
+    // Ground horizon sits at 65% down
+    this.groundY   = Math.floor(this.H * 0.65);
+    this.cx        = Math.floor(this.W / 2);   // horizontal plant centre
+  }
+
+  render(gs) {
+    this.resize();
+    const ctx = this.ctx;
+    ctx.clearRect(0, 0, this.W, this.H);
+
+    this._drawBackground(gs);
+    this._drawSoilLayers(gs);
+    this._drawBelowGround(gs);
+    this._drawPlant(gs);
+    this._drawWeatherFX(gs);
+    this._drawOverlay(gs);
+  }
+
+  // ── Background sky ───────────────────────────────────────
+  _drawBackground(gs) {
+    const ctx   = this.ctx;
+    const [top, bot] = BIOME_SKY[gs.biome.id] || [SKY_TOP, SKY_BOTTOM];
+
+    const grad = ctx.createLinearGradient(0, 0, 0, this.groundY);
+    grad.addColorStop(0, top);
+    grad.addColorStop(1, bot);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, this.W, this.groundY);
+
+    this._drawSun(gs);
+    this._drawClouds(gs);
+  }
+
+  _drawSun(gs) {
+    const ctx = this.ctx;
+    const season = gs.season;
+    // Sun position varies by season
+    const xFrac = [0.70, 0.75, 0.65, 0.55][season];
+    const yFrac = [0.18, 0.12, 0.22, 0.30][season];
+    const sx = this.W * xFrac, sy = this.groundY * yFrac;
+    const intensity = gs.env.sunlight;
+
+    // Glow
+    const glow = ctx.createRadialGradient(sx, sy, 0, sx, sy, 80);
+    glow.addColorStop(0, `rgba(255,220,100,${0.3 * intensity})`);
+    glow.addColorStop(1, 'rgba(255,220,100,0)');
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, this.W, this.groundY);
+
+    // Sun disc
+    ctx.beginPath();
+    ctx.arc(sx, sy, 22 * intensity, 0, Math.PI * 2);
+    const sunGrad = ctx.createRadialGradient(sx, sy, 0, sx, sy, 22);
+    sunGrad.addColorStop(0, '#fff8a0');
+    sunGrad.addColorStop(1, `rgba(255,190,50,${intensity})`);
+    ctx.fillStyle = sunGrad;
+    ctx.fill();
+  }
+
+  _drawClouds(gs) {
+    const ctx   = this.ctx;
+    const alpha = gs.env.rainfall * 0.6;
+    if (alpha < 0.05) return;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#c8d8c0';
+    const clouds = [[0.15, 0.25], [0.45, 0.15], [0.75, 0.30], [0.90, 0.10]];
+    clouds.forEach(([fx, fy]) => {
+      const cx = this.W * fx + (gs.tick * 0.3 % (this.W * 0.2));
+      const cy = this.groundY * fy;
+      this._cloudShape(cx, cy, 50 + fx * 30);
+    });
+    ctx.globalAlpha = 1;
+  }
+
+  _cloudShape(x, y, size) {
+    const ctx = this.ctx;
+    ctx.beginPath();
+    ctx.arc(x,       y,      size * 0.5, 0, Math.PI * 2);
+    ctx.arc(x + size * 0.4, y - size * 0.1, size * 0.35, 0, Math.PI * 2);
+    ctx.arc(x - size * 0.3, y,      size * 0.3,  0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // ── Soil layers ──────────────────────────────────────────
+  _drawSoilLayers(gs) {
+    const ctx  = this.ctx;
+    const gY   = this.groundY;
+    const H    = this.H;
+    const W    = this.W;
+
+    // Topsoil
+    const soil1 = ctx.createLinearGradient(0, gY, 0, gY + 60);
+    soil1.addColorStop(0, '#3d2810');
+    soil1.addColorStop(1, '#2a1a08');
+    ctx.fillStyle = soil1;
+    ctx.fillRect(0, gY, W, 60);
+
+    // Sub-soil
+    const soil2 = ctx.createLinearGradient(0, gY + 60, 0, gY + 180);
+    soil2.addColorStop(0, '#2a1a08');
+    soil2.addColorStop(1, '#1a1005');
+    ctx.fillStyle = soil2;
+    ctx.fillRect(0, gY + 60, W, 120);
+
+    // Deep rock/clay
+    ctx.fillStyle = '#0f0a03';
+    ctx.fillRect(0, gY + 180, W, H - gY - 180);
+
+    // Groundwater table depth indicator
+    const gDepth = gs.env.groundwaterDepth;
+    const waterY = gY + 40 + gDepth * 30;
+    if (waterY < H) {
+      ctx.globalAlpha = 0.25;
+      const waterGrad = ctx.createLinearGradient(0, waterY, 0, waterY + 15);
+      waterGrad.addColorStop(0, '#1a4a7a');
+      waterGrad.addColorStop(1, 'transparent');
+      ctx.fillStyle = waterGrad;
+      ctx.fillRect(0, waterY, W, 15);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // ── Underground: roots ───────────────────────────────────
+  _drawBelowGround(gs) {
+    const ctx = this.ctx;
+    const p   = gs.plant;
+    const gY  = this.groundY;
+    const cx  = this.cx;
+
+    // Surface roots (lateral spread)
+    if (p.rootSpread > 0) {
+      const spread = p.rootSpread * 2.5;
+      ctx.strokeStyle = '#6b4226';
+      ctx.lineWidth   = 1.5;
+      ctx.globalAlpha = 0.8;
+      for (let i = -3; i <= 3; i++) {
+        if (i === 0) continue;
+        ctx.beginPath();
+        ctx.moveTo(cx, gY + 5);
+        const ex = cx + i * spread / 3;
+        const ey = gY + 15 + Math.abs(i) * 8;
+        this._curvedLine(ctx, cx, gY + 5, cx + i * 15, gY + 8, ex, ey);
+      }
+      ctx.globalAlpha = 1;
+    }
+
+    // Tap root (vertical depth)
+    if (p.rootDepth > 2) {
+      const depth = gY + p.rootDepth * 2.5;
+      const w     = Math.max(1, p.rootDepth / 20);
+      const rootGrad = ctx.createLinearGradient(cx, gY, cx, depth);
+      rootGrad.addColorStop(0, '#8b6240');
+      rootGrad.addColorStop(1, '#4a2a10');
+      ctx.strokeStyle = rootGrad;
+      ctx.lineWidth   = w;
+      ctx.beginPath();
+      ctx.moveTo(cx, gY + 5);
+      // slight wiggle
+      ctx.bezierCurveTo(cx + 4, gY + depth / 3, cx - 4, gY + depth * 0.6, cx + 2, depth);
+      ctx.stroke();
+
+      // root hairs
+      if (p.rootDepth > 20) {
+        ctx.strokeStyle = '#6b4226';
+        ctx.lineWidth   = 0.5;
+        ctx.globalAlpha = 0.6;
+        for (let y = gY + 30; y < depth; y += 25) {
+          ctx.beginPath();
+          ctx.moveTo(cx, y);
+          ctx.lineTo(cx + (Math.random() > 0.5 ? 1 : -1) * 12, y + 8);
+          ctx.stroke();
+        }
+        ctx.globalAlpha = 1;
+      }
+    }
+
+    // Structural roots (thick anchor roots spreading near surface)
+    if (p.rootStructural > 5) {
+      const count = Math.floor(p.rootStructural / 15) + 2;
+      ctx.lineWidth   = 3;
+      ctx.globalAlpha = 0.7;
+      for (let i = 0; i < count; i++) {
+        const angle = (Math.PI / (count + 1)) * (i + 1) + Math.PI;
+        const len   = 20 + p.rootStructural * 1.0;
+        ctx.strokeStyle = '#7a5535';
+        ctx.beginPath();
+        ctx.moveTo(cx, gY + 8);
+        ctx.quadraticCurveTo(
+          cx + Math.cos(angle) * len * 0.5,
+          gY + Math.sin(angle) * len * 0.3 + 20,
+          cx + Math.cos(angle) * len,
+          gY + Math.sin(-angle) * len * 0.4 + 30,
+        );
+        ctx.stroke();
+      }
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  // ── Above-ground: plant ──────────────────────────────────
+  _drawPlant(gs) {
+    const ctx = this.ctx;
+    const p   = gs.plant;
+    const gY  = this.groundY;
+    const cx  = this.cx;
+
+    if (p.trunkHeight < 1 && p.branchCount < 1 && p.leafMass < 2) {
+      // Seed / seedling phase
+      this._drawSeedling(gs);
+      return;
+    }
+
+    // Trunk
+    const trunkH = p.trunkHeight * 2.5;
+    const trunkW = Math.max(2, 3 + p.trunkGirth * 0.4);
+    const trunkTop = gY - trunkH;
+
+    if (trunkH > 2) {
+      const trunkGrad = ctx.createLinearGradient(cx, gY, cx, trunkTop);
+      trunkGrad.addColorStop(0, '#5c3a1e');
+      trunkGrad.addColorStop(1, '#7a4a28');
+      ctx.fillStyle = trunkGrad;
+      ctx.beginPath();
+      ctx.moveTo(cx - trunkW, gY);
+      ctx.bezierCurveTo(
+        cx - trunkW * 0.8, gY - trunkH * 0.5,
+        cx - trunkW * 0.5, trunkTop + 5,
+        cx, trunkTop
+      );
+      ctx.bezierCurveTo(
+        cx + trunkW * 0.5, trunkTop + 5,
+        cx + trunkW * 0.8, gY - trunkH * 0.5,
+        cx + trunkW, gY
+      );
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // Branches
+    if (p.branchCount > 0) {
+      this._drawBranches(gs, cx, trunkTop, trunkH);
+    }
+
+    // Leaves
+    if (p.leafMass > 0) {
+      this._drawLeafCanopy(gs, cx, trunkTop, trunkH);
+    }
+  }
+
+  _drawSeedling(gs) {
+    const ctx = this.ctx;
+    const gY  = this.groundY;
+    const cx  = this.cx;
+    const p   = gs.plant;
+
+    // Seed dot
+    ctx.fillStyle = '#7a5535';
+    ctx.beginPath();
+    ctx.ellipse(cx, gY - 2, 5, 4, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Small sprout if any leaf mass
+    if (p.leafMass > 0.5) {
+      const h = p.leafMass * 3;
+      ctx.strokeStyle = '#4a8a2a';
+      ctx.lineWidth   = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx, gY - 3);
+      ctx.lineTo(cx, gY - 3 - h);
+      ctx.stroke();
+
+      // Cotyledon leaves
+      ctx.fillStyle = '#5aaa3a';
+      ctx.beginPath();
+      ctx.ellipse(cx - 8, gY - 3 - h * 0.7, 6, 3, -0.4, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(cx + 8, gY - 3 - h * 0.7, 6, 3, 0.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  _drawBranches(gs, cx, trunkTop, trunkH) {
+    const ctx = this.ctx;
+    const p   = gs.plant;
+    const count   = Math.max(1, Math.floor(p.branchCount / 8) + 1);
+    const bLen    = p.branchLength * 1.5;
+
+    ctx.strokeStyle = '#6b4226';
+    ctx.lineCap     = 'round';
+
+    for (let i = 0; i < count; i++) {
+      const frac   = (i + 1) / (count + 1);
+      const brY    = trunkTop + trunkH * frac * 0.5;
+      const side   = i % 2 === 0 ? 1 : -1;
+      const angle  = side * (Math.PI * 0.3 + frac * 0.2);
+      const w      = Math.max(1, 4 - i * 0.5);
+
+      ctx.lineWidth = w;
+      ctx.beginPath();
+      ctx.moveTo(cx, brY);
+      ctx.quadraticCurveTo(
+        cx + Math.cos(angle) * bLen * 0.5,
+        brY - bLen * 0.3,
+        cx + Math.cos(angle) * bLen,
+        brY - bLen * 0.5
+      );
+      ctx.stroke();
+    }
+  }
+
+  _drawLeafCanopy(gs, cx, trunkTop, trunkH) {
+    const ctx  = this.ctx;
+    const p    = gs.plant;
+    const mass = p.leafMass;
+
+    // Canopy radius scales with leaf mass and branch length
+    const rx = 20 + (p.branchLength * 1.8) + (mass * 0.8);
+    const ry = 15 + (mass * 0.7) + (p.trunkHeight * 0.3);
+    const cy = trunkTop - ry * 0.3;
+
+    const season = gs.season;
+    const leafColors = [
+      ['#2d7a1e', '#3d9a2e', '#4db040'],  // Spring - fresh green
+      ['#1a6010', '#2a7a20', '#3a8a30'],  // Summer - deep green
+      ['#8a5510', '#c07020', '#d08030'],  // Autumn - orange/brown
+      ['#2a3a2a', '#1a2a1a', '#3a4a3a'],  // Winter - dull/sparse
+    ][season];
+
+    const alpha = season === 3 ? 0.4 : 0.85;
+
+    // Multiple overlapping leaf clusters for organic look
+    const clusters = [
+      [cx,             cy,              rx,     ry    ],
+      [cx - rx * 0.5,  cy + ry * 0.2,  rx*0.7, ry*0.7],
+      [cx + rx * 0.5,  cy + ry * 0.2,  rx*0.7, ry*0.7],
+      [cx - rx * 0.3,  cy - ry * 0.4,  rx*0.6, ry*0.5],
+      [cx + rx * 0.3,  cy - ry * 0.4,  rx*0.6, ry*0.5],
+    ];
+
+    clusters.forEach(([lx, ly, lrx, lry], i) => {
+      ctx.globalAlpha = alpha * (i === 0 ? 1 : 0.7);
+      const col = leafColors[i % leafColors.length];
+      const grad = ctx.createRadialGradient(lx, ly, 0, lx, ly, Math.max(lrx, lry));
+      grad.addColorStop(0, col);
+      grad.addColorStop(1, leafColors[0] + '88');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(lx, ly, lrx, lry, 0, 0, Math.PI * 2);
+      ctx.fill();
+    });
+
+    ctx.globalAlpha = 1;
+  }
+
+  // ── Weather FX ───────────────────────────────────────────
+  _drawWeatherFX(gs) {
+    const rain = gs.env.rainfall;
+    if (rain < 0.4 || gs.tick % 3 !== 0) return;
+
+    const ctx   = this.ctx;
+    const drops = Math.floor(rain * 20);
+    ctx.strokeStyle = 'rgba(160,200,220,0.35)';
+    ctx.lineWidth   = 0.8;
+    for (let i = 0; i < drops; i++) {
+      const x = Math.random() * this.W;
+      const y = Math.random() * this.groundY;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + 1, y + 8);
+      ctx.stroke();
+    }
+  }
+
+  // ── HUD overlay ──────────────────────────────────────────
+  _drawOverlay(gs) {
+    // nothing extra here — HUD lives in the DOM panel
+  }
+
+  // ── Utility ──────────────────────────────────────────────
+  _curvedLine(ctx, x0, y0, cx1, cy1, x1, y1) {
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.quadraticCurveTo(cx1, cy1, x1, y1);
+    ctx.stroke();
+  }
+}

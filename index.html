@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Plant Life - A Growth Simulation</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- SCREEN: Start / Biome Selection -->
+  <div id="screen-start" class="screen active">
+    <div class="start-bg"></div>
+    <div class="start-content">
+      <h1 class="game-title">PLANT LIFE</h1>
+      <p class="game-subtitle">A survival story told in roots, leaves, and light</p>
+
+      <div class="biome-section">
+        <h2>Choose Your Biome</h2>
+        <div class="biome-grid" id="biome-grid"></div>
+      </div>
+
+      <div class="seed-section" id="seed-section" style="display:none">
+        <h2>Choose Your Seed</h2>
+        <div class="seed-grid" id="seed-grid"></div>
+      </div>
+
+      <div class="seed-preview" id="seed-preview" style="display:none">
+        <h3 id="preview-name"></h3>
+        <p id="preview-desc"></p>
+        <div class="preview-stats" id="preview-stats"></div>
+        <button id="btn-start-game" class="btn-primary">Plant This Seed</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SCREEN: Main Game -->
+  <div id="screen-game" class="screen">
+    <div class="game-layout">
+
+      <!-- Left Panel: Plant Viewer -->
+      <div class="panel panel-plant">
+        <div class="plant-viewport">
+          <canvas id="plant-canvas"></canvas>
+          <div class="time-display" id="time-display">Day 1 · Spring</div>
+          <div class="biome-label" id="biome-label"></div>
+        </div>
+      </div>
+
+      <!-- Right Panel: Controls & Info -->
+      <div class="panel panel-controls">
+
+        <!-- Resource Bars -->
+        <div class="resource-panel">
+          <h3 class="panel-title">Resources</h3>
+          <div class="resource-bars" id="resource-bars"></div>
+        </div>
+
+        <!-- Plant Stats -->
+        <div class="stats-panel">
+          <h3 class="panel-title">Plant Status</h3>
+          <div class="stat-grid" id="stat-grid"></div>
+        </div>
+
+        <!-- Growth Actions -->
+        <div class="actions-panel">
+          <h3 class="panel-title">Growth Actions</h3>
+          <div class="action-buttons" id="action-buttons"></div>
+        </div>
+
+        <!-- Root Direction -->
+        <div class="root-panel" id="root-panel" style="display:none">
+          <h3 class="panel-title">Root Type</h3>
+          <div class="root-options" id="root-options"></div>
+        </div>
+
+        <!-- Event Log -->
+        <div class="log-panel">
+          <h3 class="panel-title">Growth Log</h3>
+          <div class="log-entries" id="log-entries"></div>
+        </div>
+
+        <!-- Speed Controls -->
+        <div class="speed-panel">
+          <button id="btn-pause" class="btn-speed active">⏸ Pause</button>
+          <button id="btn-slow" class="btn-speed">× 1</button>
+          <button id="btn-normal" class="btn-speed">× 2</button>
+          <button id="btn-fast" class="btn-speed">× 5</button>
+          <button id="btn-restart" class="btn-danger">↺ New Game</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
