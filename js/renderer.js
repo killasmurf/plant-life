@@ -162,77 +162,100 @@ export class PlantRenderer {
     const gY  = this.groundY;
     const cx  = this.cx;
 
-    // Surface roots (lateral spread) — show as soon as any growth exists
+    // ── SURFACE roots: thin, wide, very shallow — light tan colour
     if (p.rootSpread > 0.5) {
-      const spread = p.rootSpread * 2.5;
-      ctx.strokeStyle = '#6b4226';
-      ctx.lineWidth   = 1.5;
-      ctx.globalAlpha = Math.min(0.9, 0.2 + p.rootSpread / 80);
-      const arms = Math.max(2, Math.floor(p.rootSpread / 15) + 2);
+      const spread = p.rootSpread * 3.2;
+      const arms   = Math.max(2, Math.floor(p.rootSpread / 12) + 2);
+      ctx.lineCap     = 'round';
+      ctx.lineWidth   = 1.2;
+      ctx.globalAlpha = Math.min(0.85, 0.25 + p.rootSpread / 70);
       for (let i = -arms; i <= arms; i++) {
         if (i === 0) continue;
+        // Surface roots stay very close to ground surface
+        const ex = cx + (i / arms) * spread;
+        const ey = gY + 10 + Math.abs(i) * 3;        // barely dips below surface
+        const cpx = cx + (i / arms) * spread * 0.4;
+        const cpy = gY + 6;
+        ctx.strokeStyle = '#c8a060';                   // light tan — fine surface roots
         ctx.beginPath();
-        ctx.moveTo(cx, gY + 5);
-        const ex = cx + i * spread / arms;
-        const ey = gY + 18 + Math.abs(i) * 6;
-        this._curvedLine(ctx, cx, gY + 5, cx + i * 12, gY + 10, ex, ey);
+        ctx.moveTo(cx, gY + 4);
+        ctx.quadraticCurveTo(cpx, cpy, ex, ey);
+        ctx.stroke();
+        // secondary feeder rootlets
+        if (p.rootSpread > 20 && Math.abs(i) <= arms - 1) {
+          ctx.lineWidth = 0.6;
+          ctx.globalAlpha = 0.4;
+          ctx.beginPath();
+          ctx.moveTo(ex * 0.6 + cx * 0.4, ey * 0.7 + gY * 0.3);
+          ctx.lineTo(ex * 0.6 + cx * 0.4 + (i > 0 ? 10 : -10), ey + 8);
+          ctx.stroke();
+          ctx.lineWidth = 1.2;
+          ctx.globalAlpha = Math.min(0.85, 0.25 + p.rootSpread / 70);
+        }
       }
       ctx.globalAlpha = 1;
     }
 
-    // Tap root (vertical depth) — show from first growth
+    // ── TAP root: single thick vertical plunge — dark reddish-brown
     if (p.rootDepth > 0.5) {
-      const rootLen  = p.rootDepth * 2.5;          // pixel length (not absolute Y)
-      const depth    = gY + 5 + rootLen;            // absolute bottom Y
-      const w        = Math.max(1, 1 + p.rootDepth / 25);
+      const rootLen  = p.rootDepth * 2.8;
+      const depth    = gY + 5 + rootLen;
+      const w        = Math.max(1.5, 1.5 + p.rootDepth / 20);
       const rootGrad = ctx.createLinearGradient(cx, gY, cx, depth);
-      rootGrad.addColorStop(0, '#8b6240');
-      rootGrad.addColorStop(1, '#4a2a10');
+      rootGrad.addColorStop(0, '#7a3a18');             // dark reddish at top
+      rootGrad.addColorStop(1, '#3a1a06');             // very dark at depth
       ctx.strokeStyle = rootGrad;
       ctx.lineWidth   = w;
+      ctx.lineCap     = 'round';
       ctx.beginPath();
       ctx.moveTo(cx, gY + 5);
-      // bezier control points relative to the root segment length
       ctx.bezierCurveTo(
-        cx + 4, gY + 5 + rootLen * 0.33,
-        cx - 4, gY + 5 + rootLen * 0.66,
-        cx + 2, depth
+        cx + 5,  gY + 5 + rootLen * 0.33,
+        cx - 5,  gY + 5 + rootLen * 0.66,
+        cx + 2,  depth
       );
       ctx.stroke();
-
-      // root hairs once established
-      if (p.rootDepth > 15) {
-        ctx.strokeStyle = '#6b4226';
+      // fine root hairs along the tap root
+      if (p.rootDepth > 12) {
         ctx.lineWidth   = 0.5;
-        ctx.globalAlpha = 0.6;
-        for (let y = gY + 20; y < depth; y += 20) {
+        ctx.globalAlpha = 0.55;
+        ctx.strokeStyle = '#8b5030';
+        for (let y = gY + 25; y < depth - 10; y += 18) {
+          const side = (y % 36 === 0) ? 1 : -1;
           ctx.beginPath();
           ctx.moveTo(cx, y);
-          ctx.lineTo(cx + (Math.random() > 0.5 ? 1 : -1) * 10, y + 7);
+          ctx.lineTo(cx + side * 14, y + 9);
           ctx.stroke();
         }
         ctx.globalAlpha = 1;
       }
     }
 
-    // Structural roots (thick anchor roots) — show from first growth
+    // ── STRUCTURAL roots: thick, short, diagonal buttress roots — warm orange-brown
     if (p.rootStructural > 0.5) {
-      const count = Math.max(1, Math.floor(p.rootStructural / 15) + 1);
-      const len   = 8 + p.rootStructural * 0.9;
-      ctx.lineWidth   = Math.max(1.5, p.rootStructural / 20);
-      ctx.globalAlpha = Math.min(0.85, 0.2 + p.rootStructural / 60);
+      const count  = Math.max(2, Math.floor(p.rootStructural / 12) + 2);
+      const len    = 12 + p.rootStructural * 1.1;
+      const thick  = Math.max(2.5, p.rootStructural / 12);
+      ctx.lineCap     = 'round';
+      ctx.globalAlpha = Math.min(0.9, 0.3 + p.rootStructural / 50);
       for (let i = 0; i < count; i++) {
-        // spread roots evenly to left and right below ground
         const side  = i % 2 === 0 ? 1 : -1;
-        const angle = side * (0.4 + (Math.floor(i / 2) * 0.25));
-        ctx.strokeStyle = '#7a5535';
+        // Buttress roots angle outward and downward — steeper than surface roots
+        const hAngle = side * (0.55 + Math.floor(i / 2) * 0.3);
+        const ex    = cx + Math.cos(hAngle) * len;
+        const ey    = gY + 18 + Math.sin(Math.abs(hAngle)) * len * 0.7;
+        // Gradient from thick orange-brown at base to thinner darker at tip
+        const rootGrad = ctx.createLinearGradient(cx, gY + 8, ex, ey);
+        rootGrad.addColorStop(0, '#a06030');           // warm orange-brown — clearly different
+        rootGrad.addColorStop(1, '#5a3018');
+        ctx.strokeStyle = rootGrad;
+        ctx.lineWidth   = thick * (1 - i * 0.1);
         ctx.beginPath();
         ctx.moveTo(cx, gY + 8);
         ctx.quadraticCurveTo(
-          cx + Math.cos(angle) * len * 0.5,
-          gY + 12 + Math.sin(angle) * len * 0.4,
-          cx + Math.cos(angle) * len,
-          gY + 20 + Math.abs(Math.sin(angle)) * len * 0.5,
+          cx + Math.cos(hAngle) * len * 0.5,
+          gY + 10 + Math.sin(Math.abs(hAngle)) * len * 0.3,
+          ex, ey
         );
         ctx.stroke();
       }

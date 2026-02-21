@@ -151,7 +151,7 @@ export class UI {
     container.innerHTML = '';
     const stats = [
       { id: 'stat-trunk',    label: 'Trunk Height' },
-      { id: 'stat-roots',    label: 'Root Depth'   },
+      { id: 'stat-roots',    label: 'Roots / Anchor' },
       { id: 'stat-leaves',   label: 'Leaf Mass'    },
       { id: 'stat-branches', label: 'Branches'     },
       { id: 'stat-sun',      label: 'Sunlight'     },
@@ -178,7 +178,11 @@ export class UI {
     };
     const maxH = gs.seed.maxHeight;
     set('stat-trunk',    `${Math.round(p.trunkHeight / 100 * maxH)}m`);
-    set('stat-roots',    `${Math.round((p.rootDepth + p.rootSpread) / 2)}%`);
+    // Show anchor score vs unlock threshold when trunk not yet unlocked
+    const anchorScore = Math.round(p.rootStructural + p.rootDepth * 0.5);
+    set('stat-roots',    gs.unlocked.trunk
+      ? `${Math.round((p.rootDepth + p.rootSpread) / 2)}%`
+      : `⚓ ${Math.min(anchorScore, 20)}/20`);
     set('stat-leaves',   `${Math.round(p.leafMass)}%`);
     set('stat-branches', Math.floor(p.branchCount / 8) + (p.branchCount > 0 ? 1 : 0));
     set('stat-sun',      `${Math.round(gs.env.sunlight * 100)}%`);

@@ -166,6 +166,7 @@ function applyGrowth(gs) {
       } else if (gs.rootType === 'structural') {
         plant.rootStructural = clamp(plant.rootStructural + spd * rt.structuralBonus, 0, 100);
         plant.rootSpread    = clamp(plant.rootSpread    + spd * 0.4,              0, 100);
+        plant.rootDepth     = clamp(plant.rootDepth     + spd * 0.5,              0, 100);
       } else {
         plant.rootSpread    = clamp(plant.rootSpread    + spd * rt.nutrientBonus, 0, 100);
         plant.rootDepth     = clamp(plant.rootDepth     + spd * 0.2,              0, 100);
@@ -199,9 +200,16 @@ function applyGrowth(gs) {
 // ── Unlock gates ──────────────────────────────────────────
 function checkUnlocks(gs) {
   const { plant } = gs;
-  if (!gs.unlocked.trunk    && plant.rootStructural >= 15 && plant.rootDepth >= 10) {
+  // Trunk unlocks when roots provide enough anchor support.
+  // Structural roots count fully; tap root depth also contributes.
+  const anchorScore = plant.rootStructural + plant.rootDepth * 0.5;
+  if (!gs.unlocked.trunk && anchorScore >= 20) {
     gs.unlocked.trunk = true;
-    addLog(gs, 'Your roots are strong enough to support a trunk.', 'good');
+    addLog(gs, 'Your roots are strong enough to support a trunk!', 'good');
+  }
+  // Hint once roots are partway there
+  if (!gs.unlocked.trunk && anchorScore >= 10 && gs.tick % 30 === 0) {
+    addLog(gs, `Roots ${Math.round(anchorScore)}/20 anchor strength — keep growing structural or tap roots.`, '');
   }
   if (!gs.unlocked.branches && plant.trunkHeight >= 20) {
     gs.unlocked.branches = true;
