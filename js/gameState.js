@@ -41,9 +41,9 @@ export function createGameState(biome, seed) {
 
     // Plant structure (each value 0–100 represents growth progress)
     plant: {
-      rootDepth:      5,    // tap root depth progress
-      rootSpread:     5,    // surface/lateral spread
-      rootStructural: 5,    // structural root mass
+      rootDepth:      0,    // tap root depth progress
+      rootSpread:     0,    // surface/lateral spread
+      rootStructural: 0,    // structural root mass
       trunkHeight:    0,    // trunk height progress
       trunkGirth:     0,    // trunk thickness
       branchCount:    0,    // number of branches (integer in render)
@@ -104,8 +104,8 @@ function computeResourceFlows(gs) {
   const co2Factor  = clamp(gs.co2 / 60, 0.1, 1.5);
   const photoRate  = leafArea * sunFactor * co2Factor * 3.5 * (gs.activeAction === 'leaves' ? 1.3 : 1.0);
 
-  // --- Seed energy if no leaves yet
-  const seedEnergy = plant.leafMass < 5 ? 1.2 : 0;
+  // --- Seed energy if no leaves yet (enough to sustain early root growth)
+  const seedEnergy = plant.leafMass < 5 ? 3.5 : 0;
 
   // --- Respiration: all living cells consume energy + O2
   const biomass      = (plant.trunkHeight + plant.branchLength + plant.leafMass + plant.rootSpread) / 100;
@@ -156,7 +156,7 @@ function applyGrowth(gs) {
 
   const { plant, seed } = gs;
   const rt  = ROOT_TYPES[gs.rootType];
-  const spd = seed.growthRate * 0.15;           // growth per tick
+  const spd = seed.growthRate * 0.6;            // growth per tick (visible per second at ×1)
 
   switch (gs.activeAction) {
     case 'roots':
