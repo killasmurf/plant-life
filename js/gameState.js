@@ -114,7 +114,7 @@ function computeResourceFlows(gs) {
 
   // --- Root water uptake
   const rootTotal    = (plant.rootSpread + plant.rootDepth + plant.rootStructural) / 100;
-  const rainCapture  = env.rainfall * plant.rootSpread / 100 * rt.waterBonus * 2.5;
+  const rainCapture  = env.rainfall * plant.rootSpread / 100 * rt.waterBonus * 4.5;
   const tapCapture   = (5 / env.groundwaterDepth) * plant.rootDepth / 100 * rt.waterBonus * 2.0;
   const waterIn      = (rainCapture + tapCapture) * seed.rootEfficiency;
 
