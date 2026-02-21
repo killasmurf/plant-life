@@ -162,27 +162,29 @@ export class PlantRenderer {
     const gY  = this.groundY;
     const cx  = this.cx;
 
-    // Surface roots (lateral spread)
-    if (p.rootSpread > 0) {
+    // Surface roots (lateral spread) — show as soon as any growth exists
+    if (p.rootSpread > 0.5) {
       const spread = p.rootSpread * 2.5;
       ctx.strokeStyle = '#6b4226';
       ctx.lineWidth   = 1.5;
-      ctx.globalAlpha = 0.8;
-      for (let i = -3; i <= 3; i++) {
+      ctx.globalAlpha = Math.min(0.9, 0.2 + p.rootSpread / 80);
+      const arms = Math.max(2, Math.floor(p.rootSpread / 15) + 2);
+      for (let i = -arms; i <= arms; i++) {
         if (i === 0) continue;
         ctx.beginPath();
         ctx.moveTo(cx, gY + 5);
-        const ex = cx + i * spread / 3;
-        const ey = gY + 15 + Math.abs(i) * 8;
-        this._curvedLine(ctx, cx, gY + 5, cx + i * 15, gY + 8, ex, ey);
+        const ex = cx + i * spread / arms;
+        const ey = gY + 18 + Math.abs(i) * 6;
+        this._curvedLine(ctx, cx, gY + 5, cx + i * 12, gY + 10, ex, ey);
       }
       ctx.globalAlpha = 1;
     }
 
-    // Tap root (vertical depth)
-    if (p.rootDepth > 2) {
-      const depth = gY + p.rootDepth * 2.5;
-      const w     = Math.max(1, p.rootDepth / 20);
+    // Tap root (vertical depth) — show from first growth
+    if (p.rootDepth > 0.5) {
+      const rootLen  = p.rootDepth * 2.5;          // pixel length (not absolute Y)
+      const depth    = gY + 5 + rootLen;            // absolute bottom Y
+      const w        = Math.max(1, 1 + p.rootDepth / 25);
       const rootGrad = ctx.createLinearGradient(cx, gY, cx, depth);
       rootGrad.addColorStop(0, '#8b6240');
       rootGrad.addColorStop(1, '#4a2a10');
@@ -190,41 +192,47 @@ export class PlantRenderer {
       ctx.lineWidth   = w;
       ctx.beginPath();
       ctx.moveTo(cx, gY + 5);
-      // slight wiggle
-      ctx.bezierCurveTo(cx + 4, gY + depth / 3, cx - 4, gY + depth * 0.6, cx + 2, depth);
+      // bezier control points relative to the root segment length
+      ctx.bezierCurveTo(
+        cx + 4, gY + 5 + rootLen * 0.33,
+        cx - 4, gY + 5 + rootLen * 0.66,
+        cx + 2, depth
+      );
       ctx.stroke();
 
-      // root hairs
-      if (p.rootDepth > 20) {
+      // root hairs once established
+      if (p.rootDepth > 15) {
         ctx.strokeStyle = '#6b4226';
         ctx.lineWidth   = 0.5;
         ctx.globalAlpha = 0.6;
-        for (let y = gY + 30; y < depth; y += 25) {
+        for (let y = gY + 20; y < depth; y += 20) {
           ctx.beginPath();
           ctx.moveTo(cx, y);
-          ctx.lineTo(cx + (Math.random() > 0.5 ? 1 : -1) * 12, y + 8);
+          ctx.lineTo(cx + (Math.random() > 0.5 ? 1 : -1) * 10, y + 7);
           ctx.stroke();
         }
         ctx.globalAlpha = 1;
       }
     }
 
-    // Structural roots (thick anchor roots spreading near surface)
-    if (p.rootStructural > 5) {
-      const count = Math.floor(p.rootStructural / 15) + 2;
-      ctx.lineWidth   = 3;
-      ctx.globalAlpha = 0.7;
+    // Structural roots (thick anchor roots) — show from first growth
+    if (p.rootStructural > 0.5) {
+      const count = Math.max(1, Math.floor(p.rootStructural / 15) + 1);
+      const len   = 8 + p.rootStructural * 0.9;
+      ctx.lineWidth   = Math.max(1.5, p.rootStructural / 20);
+      ctx.globalAlpha = Math.min(0.85, 0.2 + p.rootStructural / 60);
       for (let i = 0; i < count; i++) {
-        const angle = (Math.PI / (count + 1)) * (i + 1) + Math.PI;
-        const len   = 20 + p.rootStructural * 1.0;
+        // spread roots evenly to left and right below ground
+        const side  = i % 2 === 0 ? 1 : -1;
+        const angle = side * (0.4 + (Math.floor(i / 2) * 0.25));
         ctx.strokeStyle = '#7a5535';
         ctx.beginPath();
         ctx.moveTo(cx, gY + 8);
         ctx.quadraticCurveTo(
           cx + Math.cos(angle) * len * 0.5,
-          gY + Math.sin(angle) * len * 0.3 + 20,
+          gY + 12 + Math.sin(angle) * len * 0.4,
           cx + Math.cos(angle) * len,
-          gY + Math.sin(-angle) * len * 0.4 + 30,
+          gY + 20 + Math.abs(Math.sin(angle)) * len * 0.5,
         );
         ctx.stroke();
       }
