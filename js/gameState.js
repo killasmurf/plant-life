@@ -51,6 +51,9 @@ export function createGameState(biome, seed) {
       leafMass:       0,    // total leaf area
       flowerProgress: 0,    // % toward flowering
       ageInDays:      0,
+      // Spatial graph — nodes are coords relative to (cx, groundY)
+      nodes:      [],       // trunk + leaf node objects
+      nextNodeId: 0,
     },
 
     // Capability flags (unlock as plant grows)
@@ -59,6 +62,13 @@ export function createGameState(biome, seed) {
       branches: false,
       leaves:   false,
       flower:   false,
+    },
+
+    // Interactive placement state
+    placement: {
+      mode:       null,   // null | 'trunk' | 'leaf'
+      candidates: [],
+      hoveredId:  null,
     },
 
     log: [],
@@ -75,6 +85,7 @@ export function simulateTick(gs) {
   updateEnvironment(gs);
   computeResourceFlows(gs);
   applyGrowth(gs);
+  seedBaseNode(gs);
   checkUnlocks(gs);
   updateHealth(gs);
 }
@@ -198,6 +209,24 @@ function applyGrowth(gs) {
   }
 }
 
+// ── Seed base node when seedling first sprouts ────────────
+function seedBaseNode(gs) {
+  if (gs.plant.leafMass >= 0.5 && gs.plant.nodes.length === 0) {
+    gs.plant.nodes.push({
+      type:      'trunk',
+      id:        gs.plant.nextNodeId++,
+      parentId:  null,
+      x:         0,              // relative to cx
+      y:         -6,             // just above ground
+      angle:     -Math.PI / 2,  // pointing straight up
+      length:    6,
+      thickness: 2,
+      children:  [],
+    });
+    addLog(gs, 'A seedling has sprouted — choose where to grow your first trunk segment!', 'good');
+  }
+}
+
 // ── Unlock gates ──────────────────────────────────────────
 function checkUnlocks(gs) {
   const { plant } = gs;
@@ -252,3 +281,112 @@ function vary(val, delta = 0.03) {
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function lerp(a, b, t)    { return a + (b - a) * t; }
+
+// ── Placement: compute clickable candidate spots ──────────
+export function computePlacementCandidates(gs, type) {
+  const candidates = [];
+  const nodes = gs.plant.nodes;
+
+  if (type === 'trunk') {
+    // Offer new trunk segments off any trunk tip with no trunk child yet
+    nodes.filter(n => n.type === 'trunk').forEach(node => {
+      const hasTrunkChild = node.children.some(
+        cid => nodes.find(n => n.id === cid)?.type === 'trunk'
+      );
+      if (hasTrunkChild) return;
+      // Three angle options: left, straight, right relative to current angle
+      const segLen = Math.max(16, 12 + gs.plant.trunkHeight * 0.25);
+      [{ delta: -0.45, label: '↖ Left' }, { delta: 0, label: '↑ Straight' }, { delta: 0.45, label: '↗ Right' }]
+        .forEach(({ delta, label }) => {
+          const angle = node.angle + delta;
+          candidates.push({
+            id:           `trunk-${node.id}-${delta}`,
+            parentNodeId: node.id,
+            x:            node.x + Math.cos(angle) * segLen,
+            y:            node.y + Math.sin(angle) * segLen,
+            angle,
+            length:       segLen,
+            label,
+          });
+        });
+    });
+  }
+
+  if (type === 'leaf') {
+    // Offer leaf spots on any trunk node with fewer than 2 leaf children
+    nodes.filter(n => n.type === 'trunk').forEach(node => {
+      const leafCount = node.children.filter(
+        cid => nodes.find(n => n.id === cid)?.type === 'leaf'
+      ).length;
+      if (leafCount >= 2) return;
+      const leafSize = Math.max(10, 8 + gs.plant.leafMass * 0.35);
+      [{ side: -1, label: '← Left leaf' }, { side: 1, label: '→ Right leaf' }]
+        .forEach(({ side, label }) => {
+          const alreadyHasSide = node.children.some(cid => {
+            const c = nodes.find(n => n.id === cid);
+            return c?.type === 'leaf' && (side < 0 ? c.x < node.x : c.x >= node.x);
+          });
+          if (alreadyHasSide) return;
+          const leafAngle = node.angle + side * (Math.PI * 0.55);
+          const offset    = leafSize * 1.2;
+          candidates.push({
+            id:           `leaf-${node.id}-${side}`,
+            parentNodeId: node.id,
+            x:            node.x + Math.cos(leafAngle) * offset,
+            y:            node.y + Math.sin(leafAngle) * offset,
+            angle:        leafAngle,
+            size:         leafSize,
+            label,
+          });
+        });
+    });
+  }
+
+  return candidates;
+}
+
+// ── Placement: commit a chosen candidate into the graph ───
+export function commitPlacement(gs, candidate, type) {
+  const parent = gs.plant.nodes.find(n => n.id === candidate.parentNodeId);
+  if (!parent) return;
+
+  const newNode = {
+    type,
+    id:        gs.plant.nextNodeId++,
+    parentId:  parent.id,
+    x:         candidate.x,
+    y:         candidate.y,
+    angle:     candidate.angle,
+    length:    candidate.length  || 14,
+    thickness: type === 'trunk' ? Math.max(2, 2 + gs.plant.trunkGirth * 0.06) : 0,
+    size:      type === 'leaf'  ? (candidate.size || 12) : 0,
+    children:  [],
+  };
+
+  gs.plant.nodes.push(newNode);
+  parent.children.push(newNode.id);
+
+  // Update scalars so simulation formulas stay accurate
+  if (type === 'trunk') {
+    gs.plant.trunkHeight = clamp(gs.plant.trunkHeight + 8, 0, 100);
+    gs.plant.trunkGirth  = clamp(gs.plant.trunkGirth  + 3, 0, 100);
+    // One-time resource cost
+    gs.energy    = clamp(gs.energy    - 12, 0, 100);
+    gs.nutrients = clamp(gs.nutrients - 10, 0, 100);
+    gs.water     = clamp(gs.water     -  6, 0, 100);
+    addLog(gs, `Trunk segment placed (${candidate.label}).`, '');
+  }
+  if (type === 'leaf') {
+    gs.plant.leafMass    = clamp(gs.plant.leafMass    + 6,  0, 100);
+    gs.plant.branchLength = clamp(gs.plant.branchLength + 4, 0, 100);
+    gs.energy    = clamp(gs.energy    -  8, 0, 100);
+    gs.water     = clamp(gs.water     -  5, 0, 100);
+    gs.nutrients = clamp(gs.nutrients -  4, 0, 100);
+    addLog(gs, `Leaf cluster placed (${candidate.label}).`, 'good');
+  }
+
+  // Exit placement mode
+  gs.placement.mode       = null;
+  gs.placement.candidates = [];
+  gs.placement.hoveredId  = null;
+}

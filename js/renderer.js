@@ -22,6 +22,7 @@ export class PlantRenderer {
   constructor(canvas) {
     this.canvas = canvas;
     this.ctx    = canvas.getContext('2d');
+    this.camera = { zoom: 3.5, targetZoom: 3.5 };
     this.resize();
     window.addEventListener('resize', () => this.resize());
   }
@@ -38,15 +39,62 @@ export class PlantRenderer {
     this.cx        = Math.floor(this.W / 2);   // horizontal plant centre
   }
 
+  // ── Camera helpers ────────────────────────────────────────
+  _computeTargetZoom(gs) {
+    const p = gs.plant;
+    const trunkPx  = p.trunkHeight * 2.5;
+    const sproutPx = p.leafMass * 3;
+    const branchPx = p.branchLength * 1.5;
+    const tallest  = Math.max(sproutPx, trunkPx + branchPx * 0.5, 8);
+    // Aim to keep the tallest structure in ~30% of canvas height
+    const targetFraction = 0.30;
+    const raw = (this.H * targetFraction) / (tallest + 24);
+    return Math.max(1.0, Math.min(3.5, raw));
+  }
+
+  _applyCameraTransform() {
+    const z  = this.camera.zoom;
+    const fx = this.W * 0.5;         // focus at horizontal centre
+    const fy = this.H * 0.65;        // focus at ground line
+    this.ctx.save();
+    this.ctx.translate(fx, fy);
+    this.ctx.scale(z, z);
+    this.ctx.translate(-this.cx, -this.groundY);
+  }
+
+  _removeCameraTransform() { this.ctx.restore(); }
+
+  // Convert screen px → world coords (same origin as node graph: cx, groundY)
+  screenToWorld(sx, sy) {
+    const z  = this.camera.zoom;
+    const fx = this.W * 0.5;
+    const fy = this.H * 0.65;
+    return {
+      x: (sx - fx) / z,    // relative to cx
+      y: (sy - fy) / z,    // relative to groundY
+    };
+  }
+
   render(gs) {
     this.resize();
     const ctx = this.ctx;
     ctx.clearRect(0, 0, this.W, this.H);
 
+    // Smooth zoom toward target
+    this.camera.targetZoom = this._computeTargetZoom(gs);
+    this.camera.zoom += (this.camera.targetZoom - this.camera.zoom) * 0.05;
+
+    // Background + soil fill the full canvas (no camera transform)
     this._drawBackground(gs);
     this._drawSoilLayers(gs);
+
+    // Plant content zoomed
+    this._applyCameraTransform();
     this._drawBelowGround(gs);
     this._drawPlant(gs);
+    this._removeCameraTransform();
+
+    // Weather + HUD overlay are screen-space (no zoom)
     this._drawWeatherFX(gs);
     this._drawOverlay(gs);
   }
@@ -270,10 +318,19 @@ export class PlantRenderer {
     const gY  = this.groundY;
     const cx  = this.cx;
 
-    if (p.trunkHeight < 1 && p.branchCount < 1 && p.leafMass < 2) {
-      // Seed / seedling phase
-      this._drawSeedling(gs);
+    // Always draw seedling/seed dot (provides origin visual)
+    this._drawSeedling(gs);
+
+    // If the spatial graph exists, use it instead of procedural drawing
+    if (p.nodes && p.nodes.length > 0) {
+      this._drawPlantGraph(gs);
+      this._drawPlacementCandidates(gs);
       return;
+    }
+
+    // Fallback procedural drawing (pre-graph phase)
+    if (p.trunkHeight < 1 && p.branchCount < 1 && p.leafMass < 2) {
+      return;  // seedling already drawn above
     }
 
     // Trunk
@@ -417,6 +474,138 @@ export class PlantRenderer {
     });
 
     ctx.globalAlpha = 1;
+  }
+
+  // ── Spatial graph: trunk segments + leaf clusters ────────
+  _drawPlantGraph(gs) {
+    const ctx     = this.ctx;
+    const nodes   = gs.plant.nodes;
+    const originX = this.cx;
+    const originY = this.groundY;
+
+    // Draw trunk segments bottom-up (parents before children)
+    nodes.filter(n => n.type === 'trunk').forEach(node => {
+      const { startX, startY } = this._nodeStart(node, nodes, originX, originY);
+      const endX = originX + node.x;
+      const endY = originY + node.y;
+
+      const grad = ctx.createLinearGradient(startX, startY, endX, endY);
+      grad.addColorStop(0, '#5c3a1e');
+      grad.addColorStop(1, '#7a4a28');
+      ctx.strokeStyle = grad;
+      ctx.lineWidth   = Math.max(1.5, node.thickness);
+      ctx.lineCap     = 'round';
+      ctx.beginPath();
+      ctx.moveTo(startX, startY);
+      ctx.lineTo(endX, endY);
+      ctx.stroke();
+    });
+
+    // Draw leaf clusters
+    const season     = gs.season;
+    const leafColors = ['#3d9a2e','#2a7a20','#c07020','#2a3a2a'];
+    const leafAlpha  = season === 3 ? 0.4 : 0.85;
+
+    nodes.filter(n => n.type === 'leaf').forEach(node => {
+      const lx = originX + node.x;
+      const ly = originY + node.y;
+      const r  = node.size;
+
+      ctx.globalAlpha = leafAlpha;
+      const grad = ctx.createRadialGradient(lx, ly, 0, lx, ly, r);
+      grad.addColorStop(0, leafColors[season]);
+      grad.addColorStop(1, leafColors[season] + '55');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.ellipse(lx, ly, r, r * 0.65, node.angle, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    });
+  }
+
+  // Return the world-space start point of a node (its parent's tip, or ground)
+  _nodeStart(node, nodes, originX, originY) {
+    if (node.parentId === null) {
+      return { startX: originX, startY: originY };
+    }
+    const parent = nodes.find(n => n.id === node.parentId);
+    if (!parent) return { startX: originX, startY: originY };
+    return {
+      startX: originX + parent.x,
+      startY: originY + parent.y,
+    };
+  }
+
+  // ── Placement candidate overlay ───────────────────────────
+  _drawPlacementCandidates(gs) {
+    if (!gs.placement?.mode || !gs.placement.candidates?.length) return;
+    const ctx     = this.ctx;
+    const nodes   = gs.plant.nodes;
+    const originX = this.cx;
+    const originY = this.groundY;
+
+    gs.placement.candidates.forEach(c => {
+      const wx       = originX + c.x;
+      const wy       = originY + c.y;
+      const hovered  = gs.placement.hoveredId === c.id;
+      const pulse    = 0.7 + 0.3 * Math.sin(Date.now() / 300); // gentle pulse
+
+      // Ghost preview line from parent tip
+      if (gs.placement.mode === 'trunk') {
+        const parent = nodes.find(n => n.id === c.parentNodeId);
+        if (parent) {
+          const px = originX + parent.x;
+          const py = originY + parent.y;
+          ctx.strokeStyle = hovered ? 'rgba(180,120,60,0.8)' : 'rgba(140,90,40,0.4)';
+          ctx.lineWidth   = hovered ? 3 : 1.5;
+          ctx.setLineDash([5, 4]);
+          ctx.lineCap = 'round';
+          ctx.beginPath();
+          ctx.moveTo(px, py);
+          ctx.lineTo(wx, wy);
+          ctx.stroke();
+          ctx.setLineDash([]);
+        }
+      }
+      if (gs.placement.mode === 'leaf') {
+        const parent = nodes.find(n => n.id === c.parentNodeId);
+        if (parent) {
+          const px = originX + parent.x;
+          const py = originY + parent.y;
+          // Ghost leaf ellipse
+          ctx.globalAlpha = hovered ? 0.55 : 0.25;
+          ctx.fillStyle   = '#5aaa3a';
+          ctx.beginPath();
+          ctx.ellipse(wx, wy, 14, 9, c.angle, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.globalAlpha = 1;
+        }
+      }
+
+      // Hit-target ring
+      ctx.beginPath();
+      ctx.arc(wx, wy, hovered ? 14 * pulse : 10, 0, Math.PI * 2);
+      ctx.strokeStyle = hovered ? '#ffffff' : 'rgba(120,220,120,0.8)';
+      ctx.lineWidth   = hovered ? 2.5 : 1.5;
+      ctx.stroke();
+
+      // Centre dot
+      ctx.beginPath();
+      ctx.arc(wx, wy, hovered ? 6 : 4, 0, Math.PI * 2);
+      ctx.fillStyle = hovered ? 'rgba(220,255,220,0.95)' : 'rgba(100,210,100,0.6)';
+      ctx.fill();
+
+      // Label above when hovered
+      if (hovered && c.label) {
+        ctx.fillStyle   = '#e8ffe8';
+        ctx.font        = 'bold 11px monospace';
+        ctx.textAlign   = 'center';
+        ctx.shadowColor = '#000';
+        ctx.shadowBlur  = 3;
+        ctx.fillText(c.label, wx, wy - 18);
+        ctx.shadowBlur  = 0;
+      }
+    });
   }
 
   // ── Weather FX ───────────────────────────────────────────

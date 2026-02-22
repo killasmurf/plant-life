@@ -230,6 +230,14 @@ export class UI {
     const unlockMap = { trunk: 'trunk', branches: 'branches', leaves: 'leaves' };
     if (unlockMap[actionId] && !gs.unlocked[unlockMap[actionId]]) return;
 
+    // Once the spatial graph exists, trunk and leaf actions enter placement mode
+    const usesPlacement = (actionId === 'trunk' || actionId === 'leaves');
+    if (usesPlacement && gs.plant.nodes.length > 0) {
+      const type = actionId === 'trunk' ? 'trunk' : 'leaf';
+      this.game.enterPlacementMode(type);
+      return;
+    }
+
     gs.activeAction = (gs.activeAction === actionId) ? null : actionId;
 
     // Show root panel only when 'roots' active
@@ -240,18 +248,29 @@ export class UI {
   }
 
   updateActionButtons(gs) {
+    const inPlacement = !!gs.placement?.mode;
+
     ['roots', 'trunk', 'branches', 'leaves'].forEach(id => {
       const btn = document.getElementById(`act-${id}`);
       if (!btn) return;
 
       const unlockMap = { trunk: 'trunk', branches: 'branches', leaves: 'leaves' };
       const locked    = unlockMap[id] && !gs.unlocked[unlockMap[id]];
-      btn.disabled    = locked;
+      btn.disabled    = locked || (inPlacement && id !== 'roots');
 
       btn.classList.toggle('active-action', gs.activeAction === id);
 
       const costEl = btn.querySelector('.act-cost');
-      if (costEl && locked) costEl.textContent = '🔒 Locked';
+      if (!costEl) return;
+      if (locked) {
+        costEl.textContent = '🔒 Locked';
+      } else if (id === 'trunk' && gs.plant.nodes.length > 0 && !inPlacement) {
+        costEl.textContent = '🖱 Click to place segment';
+      } else if (id === 'leaves' && gs.plant.nodes.length > 0 && !inPlacement) {
+        costEl.textContent = '🖱 Click to place leaves';
+      } else if (inPlacement && (id === 'trunk' || id === 'leaves')) {
+        costEl.textContent = '📍 Choose a spot on the plant…';
+      }
     });
   }
 
