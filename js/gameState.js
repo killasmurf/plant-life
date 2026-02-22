@@ -159,41 +159,42 @@ function applyGrowth(gs) {
   const spd = seed.growthRate * 0.6;            // growth per tick (visible per second at ×1)
 
   switch (gs.activeAction) {
-    case 'roots':
+    case 'roots': {
       if (gs.rootType === 'taproot') {
-        plant.rootDepth     = clamp(plant.rootDepth     + spd * rt.waterBonus,     0, 100);
-        plant.rootStructural = clamp(plant.rootStructural + spd * 0.3,             0, 100);
+        plant.rootDepth      = clamp(plant.rootDepth      + spd * rt.waterBonus,       0, 100);
+        plant.rootStructural = clamp(plant.rootStructural + spd * 0.3,                 0, 100);
       } else if (gs.rootType === 'structural') {
-        plant.rootStructural = clamp(plant.rootStructural + spd * rt.structuralBonus, 0, 100);
-        plant.rootSpread    = clamp(plant.rootSpread    + spd * 0.4,              0, 100);
-        plant.rootDepth     = clamp(plant.rootDepth     + spd * 0.5,              0, 100);
+        plant.rootStructural = clamp(plant.rootStructural + spd * rt.structuralBonus,  0, 100);
+        plant.rootSpread     = clamp(plant.rootSpread     + spd * 0.4,                 0, 100);
+        plant.rootDepth      = clamp(plant.rootDepth      + spd * 0.5,                 0, 100);
       } else {
-        plant.rootSpread    = clamp(plant.rootSpread    + spd * rt.nutrientBonus, 0, 100);
-        plant.rootDepth     = clamp(plant.rootDepth     + spd * 0.2,              0, 100);
+        plant.rootSpread     = clamp(plant.rootSpread     + spd * rt.nutrientBonus,    0, 100);
+        plant.rootDepth      = clamp(plant.rootDepth      + spd * 0.2,                 0, 100);
       }
       break;
-
-    case 'trunk':
+    }
+    case 'trunk': {
       if (!gs.unlocked.trunk) break;
       const supportRatio = (plant.rootStructural + plant.rootDepth * 0.3) / 20;
       const trunkGain    = spd * seed.trunkStrength * Math.min(1, supportRatio);
-      plant.trunkHeight  = clamp(plant.trunkHeight + trunkGain,        0, 100);
-      plant.trunkGirth   = clamp(plant.trunkGirth  + trunkGain * 0.4,  0, 100);
+      plant.trunkHeight  = clamp(plant.trunkHeight + trunkGain,       0, 100);
+      plant.trunkGirth   = clamp(plant.trunkGirth  + trunkGain * 0.4, 0, 100);
       break;
-
-    case 'branches':
+    }
+    case 'branches': {
       if (!gs.unlocked.branches) break;
       const trunkSupport = plant.trunkHeight / 20;
       const branchGain   = spd * Math.min(1, trunkSupport);
-      plant.branchCount  = clamp(plant.branchCount  + branchGain * 0.5,  0, 100);
-      plant.branchLength = clamp(plant.branchLength + branchGain,        0, 100);
+      plant.branchCount  = clamp(plant.branchCount  + branchGain * 0.5, 0, 100);
+      plant.branchLength = clamp(plant.branchLength + branchGain,       0, 100);
       break;
-
-    case 'leaves':
+    }
+    case 'leaves': {
       if (!gs.unlocked.leaves) break;
       const branchBase = Math.max(0.3, plant.branchLength / 15 + plant.trunkHeight / 30);
       plant.leafMass   = clamp(plant.leafMass + spd * branchBase * seed.leafEfficiency, 0, 100);
       break;
+    }
   }
 }
 
