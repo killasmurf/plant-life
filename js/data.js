@@ -12,6 +12,7 @@ export const BIOMES = {
     soilNutrients: 0.55,
     soilType: 'loam',
     tempRange: [5, 30],   // °C seasonal range
+    wind: 0.3,            // 0=calm, negative=leftward, positive=rightward (-1 to 1)
     seeds: ['grass', 'wildflower', 'shrub', 'oak', 'sunflower'],
   },
   forest: {
@@ -23,6 +24,7 @@ export const BIOMES = {
     soilNutrients: 0.80,
     soilType: 'clay-loam',
     tempRange: [0, 25],
+    wind: 0.0,            // sheltered — calm
     seeds: ['oak', 'fern', 'moss', 'pine', 'shrub'],
   },
   desert: {
@@ -34,6 +36,7 @@ export const BIOMES = {
     soilNutrients: 0.20,
     soilType: 'sand',
     tempRange: [10, 48],
+    wind: 0.5,            // hot desert wind from one side
     seeds: ['cactus', 'shrub', 'succulent', 'drygrass'],
   },
   wetlands: {
@@ -45,6 +48,7 @@ export const BIOMES = {
     soilNutrients: 0.70,
     soilType: 'clay',
     tempRange: [8, 28],
+    wind: -0.2,           // gentle breeze from right
     seeds: ['reed', 'fern', 'moss', 'willow', 'wildflower'],
   },
   mountain: {
@@ -56,6 +60,7 @@ export const BIOMES = {
     soilNutrients: 0.30,
     soilType: 'rocky',
     tempRange: [-10, 20],
+    wind: -0.8,           // strong prevailing wind from the right
     seeds: ['pine', 'shrub', 'moss', 'drygrass'],
   },
   tropical: {
@@ -67,6 +72,7 @@ export const BIOMES = {
     soilNutrients: 0.90,
     soilType: 'loam',
     tempRange: [22, 38],
+    wind: 0.1,            // very light tropical breeze
     seeds: ['palm', 'fern', 'vine', 'oak', 'wildflower'],
   },
 };

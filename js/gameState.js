@@ -54,6 +54,16 @@ export function createGameState(biome, seed) {
       // Spatial graph — nodes are coords relative to (cx, groundY)
       nodes:      [],       // trunk + leaf node objects
       nextNodeId: 0,
+      // Persistent root fractal graph — generated once, thickened over time
+      rootGraph: {
+        surface:    [],     // array of root segment objects
+        taproot:    [],
+        structural: [],
+        // Track how many arms/milestone segments have been generated
+        surfaceArms:    0,
+        taprootDepth:   0,  // generation depth currently grown to
+        structuralArms: 0,
+      },
     },
 
     // Capability flags (unlock as plant grows)
@@ -85,6 +95,7 @@ export function simulateTick(gs) {
   updateEnvironment(gs);
   computeResourceFlows(gs);
   applyGrowth(gs);
+  updateRootGraph(gs);
   seedBaseNode(gs);
   checkUnlocks(gs);
   updateHealth(gs);
@@ -285,6 +296,174 @@ function updateHealth(gs) {
   else              gs.health = clamp(gs.health - stress * 0.5, 0, 100);
 
   if (gs.health < 30 && gs.tick % 50 === 0) addLog(gs, 'The plant is struggling to survive!', 'danger');
+}
+
+// ── Persistent root fractal graph generation ──────────────
+// Called every tick; only adds new segments when growth milestones are hit.
+// Segments are never re-randomised — they accumulate and thicken over time.
+function updateRootGraph(gs) {
+  const { plant } = gs;
+  const rg = plant.rootGraph;
+
+  // ── Surface roots: one new arm per 12 units of rootSpread ──
+  const targetSurfaceArms = Math.max(0, Math.floor(plant.rootSpread / 12));
+  if (targetSurfaceArms > rg.surfaceArms) {
+    const newArms = targetSurfaceArms - rg.surfaceArms;
+    for (let a = 0; a < newArms; a++) {
+      const armIndex = rg.surfaceArms + a;
+      // Alternate left/right, fan outward from nearly horizontal
+      const side = armIndex % 2 === 0 ? 1 : -1;
+      const fan  = Math.floor(armIndex / 2);
+      // In canvas coords: 0=right, PI/2=down, PI=left
+      // Surface roots must go INTO the ground but stay SHALLOW:
+      //   first arm:  ~8° below horizontal  (0.14 rad from horizontal)
+      //   each pair fans 12° steeper, max ~30° below horizontal (0.52 rad)
+      const dipAngle = Math.min(0.52, 0.14 + fan * 0.21); // radians below horizontal
+      const baseAngle = side > 0
+        ? dipAngle              // right side: small positive angle (slightly below horiz)
+        : Math.PI - dipAngle;   // left side: mirrored (just past PI, slightly below horiz)
+      const segLen = 20 + plant.rootSpread * 2.0;
+      const segs = _buildRootSegments(0, 0, baseAngle, segLen, 3, 1.4, 'surface', armIndex);
+      rg.surface.push(...segs);
+    }
+    rg.surfaceArms = targetSurfaceArms;
+  }
+
+  // ── Tap root: grow one more fractal depth level per 25 units of rootDepth ──
+  const targetDepth = Math.min(4, 1 + Math.floor(plant.rootDepth / 22));
+  if (targetDepth > rg.taprootDepth) {
+    // Clear and rebuild with deeper recursion (tap root replaces in-place)
+    rg.taproot = [];
+    const rootLen = plant.rootDepth * 2.6;
+    const segs = _buildRootSegments(0, 0, Math.PI / 2, rootLen, targetDepth, 2.2, 'taproot', 0);
+    rg.taproot.push(...segs);
+    rg.taprootDepth = targetDepth;
+  }
+
+  // ── Structural roots: one new arm per 15 units of rootStructural ──
+  const targetStructArms = Math.max(0, Math.floor(plant.rootStructural / 15));
+  if (targetStructArms > rg.structuralArms) {
+    const newArms = targetStructArms - rg.structuralArms;
+    for (let a = 0; a < newArms; a++) {
+      const armIndex = rg.structuralArms + a;
+      const side  = armIndex % 2 === 0 ? 1 : -1;
+      const fan   = Math.floor(armIndex / 2);
+      // Structural: steeper downward angle than surface (30-60° below horizontal)
+      const baseAngle = side > 0
+        ? 0.5  + fan * 0.28           // right: ~29° to ~45° below horizontal
+        : Math.PI - 0.5 - fan * 0.28; // left mirrored
+      const segLen = 16 + plant.rootStructural * 0.9;
+      const segs = _buildRootSegments(0, 0, baseAngle, segLen, 2, 2.8, 'structural', armIndex);
+      rg.structural.push(...segs);
+    }
+    rg.structuralArms = targetStructArms;
+  }
+
+  // ── Thicken all existing segments proportionally to growth ──
+  const surfScale  = 0.012 + plant.rootSpread    / 3000;
+  const tapScale   = 0.018 + plant.rootDepth     / 2500;
+  const struScale  = 0.020 + plant.rootStructural / 2200;
+  rg.surface.forEach(s    => { s.width = Math.min(s.width + surfScale, s.maxWidth); });
+  rg.taproot.forEach(s    => { s.width = Math.min(s.width + tapScale,  s.maxWidth); });
+  rg.structural.forEach(s => { s.width = Math.min(s.width + struScale, s.maxWidth); });
+}
+
+/**
+ * Build a list of root segment objects using a seeded pseudo-random walk.
+ * All randomness is determined by (armSeed + segment index) so the graph
+ * is stable across ticks.
+ * Returns flat array of {x1,y1,x2,y2,cpx,cpy,width,maxWidth,colA,colB,type}
+ */
+function _buildRootSegments(startX, startY, angle, length, depth, width, rootType, armSeed) {
+  const segments = [];
+  _recurseRoot(startX, startY, angle, length, depth, width, rootType, armSeed, 0, segments);
+  return segments;
+}
+
+function _recurseRoot(x, y, angle, length, depth, width, rootType, armSeed, segIndex, out) {
+  if (depth <= 0 || length < 2.5) return;
+
+  // Seeded pseudo-random: consistent across ticks for same arm
+  const rng  = _seededRand(armSeed * 1000 + segIndex * 37 + depth * 13);
+  const rng2 = _seededRand(armSeed * 1000 + segIndex * 37 + depth * 13 + 7);
+  const rng3 = _seededRand(armSeed * 1000 + segIndex * 37 + depth * 13 + 17);
+
+  // Small natural wobble — tighter for tap root so it stays vertical
+  const wobbleAmt = rootType === 'taproot' ? 0.08 : 0.14;
+  const wobble    = (rng - 0.5) * wobbleAmt;
+  const a         = angle + wobble;
+  const ex        = x + Math.cos(a) * length;
+  const ey        = y + Math.sin(a) * length;
+  // Control point: wobble in lateral direction only (not depth) for surface roots
+  const lateralWobble = rootType === 'surface' ? (rng2 - 0.5) * length * 0.35 : (rng2 - 0.5) * length * 0.22;
+  const depthWobble   = rootType === 'surface' ? (rng3 - 0.5) * length * 0.06 : (rng3 - 0.5) * length * 0.15;
+  const mx  = (x + ex) / 2 + lateralWobble;
+  const my  = (y + ey) / 2 + depthWobble;
+
+  const colours = {
+    surface:    { a: '#c8a060', b: '#a07840' },
+    taproot:    { a: '#7a3a18', b: '#3a1a06' },
+    structural: { a: '#a06030', b: '#5a3018' },
+  }[rootType];
+
+  const maxW = rootType === 'structural' ? width * 1.6
+             : rootType === 'taproot'    ? width * 1.4
+             :                            width * 1.2;
+
+  out.push({
+    x1: x, y1: y, x2: ex, y2: ey,
+    cpx: mx, cpy: my,
+    width:    width * 0.35,   // start thin, thickened by updateRootGraph
+    maxWidth: maxW,
+    colA: colours.a,
+    colB: colours.b,
+    rootType,
+  });
+
+  const childCount = depth > 1 ? 2 : 1;
+  const childLen   = length * 0.60;
+  const childW     = width  * 0.58;
+
+  for (let i = 0; i < childCount; i++) {
+    const fraction = childCount === 1 ? 0 : (i === 0 ? -0.5 : 0.5);
+    let childAngle;
+
+    if (rootType === 'surface') {
+      // Surface roots stay shallow: children fan left/right along the same
+      // horizontal-ish plane. The base angle is near-horizontal so we spread
+      // further in the lateral (horizontal) direction only — NO downward bias.
+      // Fan children ±20° around the parent's current shallow angle.
+      childAngle = a + fraction * 0.35;
+      // Clamp so surface roots never go below 70° from vertical (i.e. stay
+      // within 20° of horizontal). In canvas: angle must stay < PI*0.35 (right)
+      // or > PI*0.65 (left). Clamp toward horizontal (0 or PI).
+      const isRight = Math.cos(childAngle) > 0;
+      const maxDip  = 0.38; // ~22° below horizontal max
+      if (isRight) childAngle = Math.min(childAngle, maxDip);
+      else          childAngle = Math.max(childAngle, Math.PI - maxDip);
+
+    } else if (rootType === 'taproot') {
+      // Tap root: children stay near-vertical, slight spread
+      childAngle = a + fraction * 0.18;
+      // Bias toward PI/2 (straight down) strongly
+      childAngle = childAngle * 0.25 + (Math.PI / 2) * 0.75;
+
+    } else {
+      // Structural: medium diagonal — fan moderately, drift somewhat downward
+      childAngle = a + fraction * 0.28;
+      // Soft bias toward downward without going vertical
+      const target = a + 0.20; // drift slightly steeper each generation
+      childAngle = childAngle * 0.80 + target * 0.20;
+    }
+
+    _recurseRoot(ex, ey, childAngle, childLen, depth - 1, childW, rootType, armSeed, segIndex * 10 + i + 1, out);
+  }
+}
+
+/** Simple deterministic hash → 0..1 float */
+function _seededRand(seed) {
+  const s = Math.sin(seed + 1) * 43758.5453;
+  return s - Math.floor(s);
 }
 
 // ── Helpers ───────────────────────────────────────────────

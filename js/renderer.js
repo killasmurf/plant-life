@@ -203,111 +203,57 @@ export class PlantRenderer {
     }
   }
 
-  // ── Underground: roots ───────────────────────────────────
+  // ── Underground: draw persistent root graph ──────────────
   _drawBelowGround(gs) {
     const ctx = this.ctx;
     const p   = gs.plant;
     const gY  = this.groundY;
     const cx  = this.cx;
+    const rg  = p.rootGraph;
 
-    // ── SURFACE roots: thin, wide, very shallow — light tan colour
-    if (p.rootSpread > 0.5) {
-      const spread = p.rootSpread * 3.2;
-      const arms   = Math.max(2, Math.floor(p.rootSpread / 12) + 2);
-      ctx.lineCap     = 'round';
-      ctx.lineWidth   = 1.2;
-      ctx.globalAlpha = Math.min(0.85, 0.25 + p.rootSpread / 70);
-      for (let i = -arms; i <= arms; i++) {
-        if (i === 0) continue;
-        // Surface roots stay very close to ground surface
-        const ex = cx + (i / arms) * spread;
-        const ey = gY + 10 + Math.abs(i) * 3;        // barely dips below surface
-        const cpx = cx + (i / arms) * spread * 0.4;
-        const cpy = gY + 6;
-        ctx.strokeStyle = '#c8a060';                   // light tan — fine surface roots
-        ctx.beginPath();
-        ctx.moveTo(cx, gY + 4);
-        ctx.quadraticCurveTo(cpx, cpy, ex, ey);
-        ctx.stroke();
-        // secondary feeder rootlets
-        if (p.rootSpread > 20 && Math.abs(i) <= arms - 1) {
-          ctx.lineWidth = 0.6;
-          ctx.globalAlpha = 0.4;
-          ctx.beginPath();
-          ctx.moveTo(ex * 0.6 + cx * 0.4, ey * 0.7 + gY * 0.3);
-          ctx.lineTo(ex * 0.6 + cx * 0.4 + (i > 0 ? 10 : -10), ey + 8);
-          ctx.stroke();
-          ctx.lineWidth = 1.2;
-          ctx.globalAlpha = Math.min(0.85, 0.25 + p.rootSpread / 70);
-        }
-      }
+    ctx.lineCap = 'round';
+    ctx.setLineDash([]);
+
+    // Draw all three root types from their persistent segment lists
+    if (p.rootSpread > 0.5 && rg.surface.length > 0) {
+      const alpha = Math.min(0.85, 0.25 + p.rootSpread / 75);
+      ctx.globalAlpha = alpha;
+      this._drawRootSegments(rg.surface, cx, gY + 4);
       ctx.globalAlpha = 1;
     }
 
-    // ── TAP root: single thick vertical plunge — dark reddish-brown
-    if (p.rootDepth > 0.5) {
-      const rootLen  = p.rootDepth * 2.8;
-      const depth    = gY + 5 + rootLen;
-      const w        = Math.max(1.5, 1.5 + p.rootDepth / 20);
-      const rootGrad = ctx.createLinearGradient(cx, gY, cx, depth);
-      rootGrad.addColorStop(0, '#7a3a18');             // dark reddish at top
-      rootGrad.addColorStop(1, '#3a1a06');             // very dark at depth
-      ctx.strokeStyle = rootGrad;
-      ctx.lineWidth   = w;
-      ctx.lineCap     = 'round';
+    if (p.rootDepth > 0.5 && rg.taproot.length > 0) {
+      const alpha = Math.min(0.90, 0.30 + p.rootDepth / 75);
+      ctx.globalAlpha = alpha;
+      this._drawRootSegments(rg.taproot, cx, gY + 5);
+      ctx.globalAlpha = 1;
+    }
+
+    if (p.rootStructural > 0.5 && rg.structural.length > 0) {
+      const alpha = Math.min(0.90, 0.30 + p.rootStructural / 60);
+      ctx.globalAlpha = alpha;
+      this._drawRootSegments(rg.structural, cx, gY + 8);
+      ctx.globalAlpha = 1;
+    }
+  }
+
+  /** Render a flat list of pre-computed root segments, offset by (originX, originY). */
+  _drawRootSegments(segments, originX, originY) {
+    const ctx = this.ctx;
+    for (const s of segments) {
+      const x1 = originX + s.x1, y1 = originY + s.y1;
+      const x2 = originX + s.x2, y2 = originY + s.y2;
+      const cx = originX + s.cpx, cy = originY + s.cpy;
+
+      const grad = ctx.createLinearGradient(x1, y1, x2, y2);
+      grad.addColorStop(0, s.colA);
+      grad.addColorStop(1, s.colB);
+      ctx.strokeStyle = grad;
+      ctx.lineWidth   = Math.max(0.4, s.width);
       ctx.beginPath();
-      ctx.moveTo(cx, gY + 5);
-      ctx.bezierCurveTo(
-        cx + 5,  gY + 5 + rootLen * 0.33,
-        cx - 5,  gY + 5 + rootLen * 0.66,
-        cx + 2,  depth
-      );
+      ctx.moveTo(x1, y1);
+      ctx.quadraticCurveTo(cx, cy, x2, y2);
       ctx.stroke();
-      // fine root hairs along the tap root
-      if (p.rootDepth > 12) {
-        ctx.lineWidth   = 0.5;
-        ctx.globalAlpha = 0.55;
-        ctx.strokeStyle = '#8b5030';
-        for (let y = gY + 25; y < depth - 10; y += 18) {
-          const side = (y % 36 === 0) ? 1 : -1;
-          ctx.beginPath();
-          ctx.moveTo(cx, y);
-          ctx.lineTo(cx + side * 14, y + 9);
-          ctx.stroke();
-        }
-        ctx.globalAlpha = 1;
-      }
-    }
-
-    // ── STRUCTURAL roots: thick, short, diagonal buttress roots — warm orange-brown
-    if (p.rootStructural > 0.5) {
-      const count  = Math.max(2, Math.floor(p.rootStructural / 12) + 2);
-      const len    = 12 + p.rootStructural * 1.1;
-      const thick  = Math.max(2.5, p.rootStructural / 12);
-      ctx.lineCap     = 'round';
-      ctx.globalAlpha = Math.min(0.9, 0.3 + p.rootStructural / 50);
-      for (let i = 0; i < count; i++) {
-        const side  = i % 2 === 0 ? 1 : -1;
-        // Buttress roots angle outward and downward — steeper than surface roots
-        const hAngle = side * (0.55 + Math.floor(i / 2) * 0.3);
-        const ex    = cx + Math.cos(hAngle) * len;
-        const ey    = gY + 18 + Math.sin(Math.abs(hAngle)) * len * 0.7;
-        // Gradient from thick orange-brown at base to thinner darker at tip
-        const rootGrad = ctx.createLinearGradient(cx, gY + 8, ex, ey);
-        rootGrad.addColorStop(0, '#a06030');           // warm orange-brown — clearly different
-        rootGrad.addColorStop(1, '#5a3018');
-        ctx.strokeStyle = rootGrad;
-        ctx.lineWidth   = thick * (1 - i * 0.1);
-        ctx.beginPath();
-        ctx.moveTo(cx, gY + 8);
-        ctx.quadraticCurveTo(
-          cx + Math.cos(hAngle) * len * 0.5,
-          gY + 10 + Math.sin(Math.abs(hAngle)) * len * 0.3,
-          ex, ey
-        );
-        ctx.stroke();
-      }
-      ctx.globalAlpha = 1;
     }
   }
 
@@ -476,35 +422,67 @@ export class PlantRenderer {
     ctx.globalAlpha = 1;
   }
 
-  // ── Spatial graph: trunk segments + leaf clusters ────────
+  // ── Spatial graph: fractal trunk + fractal leaves ────────
   _drawPlantGraph(gs) {
     const ctx     = this.ctx;
     const nodes   = gs.plant.nodes;
     const originX = this.cx;
     const originY = this.groundY;
+    const season  = gs.season;
 
-    // Draw trunk segments bottom-up (parents before children)
+    // Biome wind: -1 (strong left) to +1 (strong right), default 0
+    const wind = gs.biome.wind ?? 0;
+
+    // Draw trunk segments with fractal side-twigs off each segment
     nodes.filter(n => n.type === 'trunk').forEach(node => {
       const { startX, startY } = this._nodeStart(node, nodes, originX, originY);
       const endX = originX + node.x;
       const endY = originY + node.y;
 
+      // Main trunk segment
       const grad = ctx.createLinearGradient(startX, startY, endX, endY);
       grad.addColorStop(0, '#5c3a1e');
       grad.addColorStop(1, '#7a4a28');
       ctx.strokeStyle = grad;
       ctx.lineWidth   = Math.max(1.5, node.thickness);
       ctx.lineCap     = 'round';
+      ctx.setLineDash([]);
       ctx.beginPath();
       ctx.moveTo(startX, startY);
       ctx.lineTo(endX, endY);
       ctx.stroke();
+
+      // Fractal side-twigs: one left, one right — biased by wind
+      const twigLen   = Math.max(0, gs.plant.branchLength * 0.4);
+      const twigDepth = Math.min(3, 1 + Math.floor(gs.plant.branchLength / 22));
+      if (twigLen > 3 && gs.unlocked.branches) {
+        const segAngle = Math.atan2(endY - startY, endX - startX);
+        const mx = (startX + endX) / 2;
+        const my = (startY + endY) / 2;
+
+        // Left twig (side = -1) and right twig (side = +1)
+        // Base spread angle from trunk axis is ±0.45 rad (≈25°)
+        // Wind biases each side: positive wind pushes branches left (negative canvas x = negative wind)
+        // wind > 0 → branches lean right (downwind), so left branch is shorter/less prominent
+        [-1, 1].forEach(side => {
+          // Wind reduces the spread on the windward side, increases on the leeward side
+          const windEffect  = side * wind * 0.25; // shifts angle further on leeward side
+          const twigAngle   = segAngle + side * (Math.PI * 0.45) + windEffect;
+          // Leeward branches slightly longer; windward shorter
+          const lenScale    = 1.0 - side * wind * 0.3;
+          const scaledLen   = twigLen * Math.max(0.3, lenScale);
+          const alphaScale  = 1.0 - side * wind * 0.2;
+          ctx.globalAlpha   = Math.max(0.2, 0.75 * alphaScale);
+          this._drawFractalBranch(mx, my, twigAngle, scaledLen, twigDepth,
+            Math.max(0.8, node.thickness * 0.45), season);
+          ctx.globalAlpha = 1;
+        });
+      }
     });
 
-    // Draw leaf clusters
-    const season     = gs.season;
-    const leafColors = ['#3d9a2e','#2a7a20','#c07020','#2a3a2a'];
-    const leafAlpha  = season === 3 ? 0.4 : 0.85;
+    // Draw leaf clusters as fractal leaf sprays
+    // Leaves can attach directly to trunk nodes (early game) or to branch tips
+    const leafAlpha = season === 3 ? 0.4 : 0.85;
 
     nodes.filter(n => n.type === 'leaf').forEach(node => {
       const lx = originX + node.x;
@@ -512,15 +490,122 @@ export class PlantRenderer {
       const r  = node.size;
 
       ctx.globalAlpha = leafAlpha;
-      const grad = ctx.createRadialGradient(lx, ly, 0, lx, ly, r);
-      grad.addColorStop(0, leafColors[season]);
-      grad.addColorStop(1, leafColors[season] + '55');
-      ctx.fillStyle = grad;
-      ctx.beginPath();
-      ctx.ellipse(lx, ly, r, r * 0.65, node.angle, 0, Math.PI * 2);
-      ctx.fill();
+      this._drawFractalLeaf(lx, ly, node.angle, r, season, gs.plant.leafMass);
       ctx.globalAlpha = 1;
     });
+  }
+
+  /**
+   * Fractal branch/twig system for above-ground growth.
+   * Each branch splits into smaller branches, tapering in width and length.
+   */
+  _drawFractalBranch(x, y, angle, length, depth, width, season) {
+    if (depth <= 0 || length < 2) return;
+
+    const ctx    = this.ctx;
+    const wobble = (Math.random() - 0.5) * 0.15;
+    const a      = angle + wobble;
+
+    const ex = x + Math.cos(a) * length;
+    const ey = y + Math.sin(a) * length;
+
+    // Branch colour: darker/browner at base, lighter toward tips
+    const t       = 1 - depth / 3;   // 0 at base, 1 at tips
+    const r       = Math.round(92  + t * 40);
+    const g       = Math.round(58  + t * 20);
+    const b       = Math.round(30  + t * 10);
+    ctx.strokeStyle = `rgb(${r},${g},${b})`;
+    ctx.lineWidth   = Math.max(0.4, width);
+    ctx.lineCap     = 'round';
+
+    // Slight curve via control point
+    const cpx = (x + ex) / 2 + (Math.random() - 0.5) * length * 0.25;
+    const cpy = (y + ey) / 2 - length * 0.1;  // slight upward curve
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.quadraticCurveTo(cpx, cpy, ex, ey);
+    ctx.stroke();
+
+    // Add a small leaf cluster at branch tip
+    if (depth === 1) {
+      // Leaf faces outward along branch direction (petiole continues outward)
+      this._drawFractalLeaf(ex, ey, a, length * 0.9, season, 50);
+      return;
+    }
+
+    // Two children per branch node
+    const childLen = length * (0.58 + Math.random() * 0.12);
+    [-1, 1].forEach(side => {
+      const childAngle = a + side * (0.35 + Math.random() * 0.2);
+      this._drawFractalBranch(
+        ex, ey,
+        childAngle,
+        childLen,
+        depth - 1,
+        width * 0.62,
+        season
+      );
+    });
+  }
+
+  /**
+   * Fractal leaf cluster: draws a petiole + 3-5 individual leaf shapes
+   * radiating from the attachment point. Leaf size and count scale with
+   * the base radius (r).
+   */
+  _drawFractalLeaf(cx, cy, baseAngle, r, season, leafMass) {
+    const ctx = this.ctx;
+
+    const leafColors = [
+      ['#2d7a1e', '#4db040', '#1a5a10'],  // Spring
+      ['#1a6010', '#2a7a20', '#0d4a08'],  // Summer
+      ['#c07020', '#d08030', '#8a4010'],  // Autumn
+      ['#2a3a2a', '#3a4a3a', '#1a2a1a'],  // Winter
+    ][season];
+
+    const leafCount  = leafMass > 50 ? 5 : leafMass > 25 ? 4 : 3;
+    const petioleLen = r * 0.45;
+
+    // Petiole (leaf stalk)
+    ctx.strokeStyle = '#4a7020';
+    ctx.lineWidth   = 0.8;
+    ctx.lineCap     = 'round';
+    const petX = cx + Math.cos(baseAngle) * petioleLen;
+    const petY = cy + Math.sin(baseAngle) * petioleLen;
+    ctx.beginPath();
+    ctx.moveTo(cx, cy);
+    ctx.lineTo(petX, petY);
+    ctx.stroke();
+
+    // Individual leaflets arranged radially from petiole tip
+    for (let i = 0; i < leafCount; i++) {
+      const fraction  = leafCount === 1 ? 0 : (i / (leafCount - 1)) - 0.5;
+      const leafAngle = baseAngle + fraction * Math.PI * 0.9;
+      const lx = petX + Math.cos(leafAngle) * r * 0.55;
+      const ly = petY + Math.sin(leafAngle) * r * 0.55;
+
+      const leafW = r * (0.35 + Math.abs(fraction) * 0.15);
+      const leafH = leafW * 0.45;
+
+      const col = leafColors[i % leafColors.length];
+      ctx.fillStyle = col;
+      ctx.globalAlpha = season === 3 ? 0.35 : (0.65 + Math.random() * 0.2);
+      ctx.beginPath();
+      ctx.ellipse(lx, ly, leafW, leafH, leafAngle, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Midrib vein
+      if (r > 6) {
+        ctx.strokeStyle = 'rgba(255,255,255,0.18)';
+        ctx.lineWidth   = 0.5;
+        ctx.beginPath();
+        ctx.moveTo(lx - Math.cos(leafAngle) * leafW * 0.7, ly - Math.sin(leafAngle) * leafW * 0.7);
+        ctx.lineTo(lx + Math.cos(leafAngle) * leafW * 0.7, ly + Math.sin(leafAngle) * leafW * 0.7);
+        ctx.stroke();
+      }
+    }
+
+    ctx.globalAlpha = 1;
   }
 
   // Return the world-space start point of a node (its parent's tip, or ground)
