@@ -3,7 +3,8 @@
 // ============================================================
 
 import { BIOMES, SEEDS, TICK_MS_BASE } from './data.js';
-import { createGameState, simulateTick, addLog } from './gameState.js';
+import { createGameState, simulateTick, addLog,
+         computePlacementCandidates, commitPlacement } from './gameState.js';
 import { PlantRenderer } from './renderer.js';
 import { UI } from './ui.js';
 
@@ -16,21 +17,16 @@ class PlantGame {
     this.ui             = null;
     this._loopHandle    = null;
     this._lastTick      = 0;
-    this._speed         = 0; // ticks per second; 0 = paused
+    this._speed         = 0;
 
     this._init();
   }
 
   _init() {
-    // Build UI (start screen)
     this.ui = new UI(this);
-
-    // Wire up start-game button
     document.getElementById('btn-start-game').addEventListener('click', () => {
       this._startGame();
     });
-
-    // Show start screen
     this._showScreen('screen-start');
   }
 
@@ -47,31 +43,102 @@ class PlantGame {
       return;
     }
 
-    // Create state
     this.gs = createGameState(this.selectedBiome, this.selectedSeed);
     addLog(this.gs, `A ${this.selectedSeed.name} seed settles into ${this.selectedBiome.name} soil.`, 'good');
     addLog(this.gs, 'Grow roots first to gather water and anchor yourself.', '');
 
-    // Setup renderer
     const canvas = document.getElementById('plant-canvas');
     this.renderer = new PlantRenderer(canvas);
 
-    // Update UI
+    // Wire canvas interaction
+    canvas.addEventListener('click',     e => this._handleCanvasClick(e));
+    canvas.addEventListener('mousemove', e => this._handleCanvasMouseMove(e));
+
     this.ui.updateBiomeLabel(this.gs);
     this.ui.updateActionButtons(this.gs);
     this.ui.setSpeedActive(-1);
-
-    // Default: surface roots selected
     this.ui._selectRootType('surface');
 
-    // Switch screen
     this._showScreen('screen-game');
-
-    // Draw first frame
     this.renderer.render(this.gs);
-
-    // Start in paused state; user clicks speed to begin
     this.gs.paused = true;
+  }
+
+  // ── Placement mode ────────────────────────────────────────
+  enterPlacementMode(type) {
+    const gs = this.gs;
+    if (!gs) return;
+
+    const candidates = computePlacementCandidates(gs, type);
+    if (!candidates.length) {
+      addLog(gs, `No valid spots to place a ${type} right now.`, 'warn');
+      return;
+    }
+
+    gs.placement.mode       = type;
+    gs.placement.candidates = candidates;
+    gs.placement.hoveredId  = null;
+    gs.activeAction         = null;  // pause auto-growth
+
+    addLog(gs, `Click a glowing spot to place a ${type} segment.`, '');
+    this.ui.updateActionButtons(gs);
+    this.renderer.render(gs);
+  }
+
+  _handleCanvasClick(e) {
+    const gs = this.gs;
+    if (!gs || !gs.placement.mode) return;
+
+    const rect   = this.renderer.canvas.getBoundingClientRect();
+    const scaleX = this.renderer.canvas.width  / rect.width;
+    const scaleY = this.renderer.canvas.height / rect.height;
+    const world  = this.renderer.screenToWorld(
+      (e.clientX - rect.left) * scaleX,
+      (e.clientY - rect.top)  * scaleY,
+    );
+
+    // Find closest candidate within hit radius (world-space)
+    const HIT = 28;
+    let best = null, bestDist = Infinity;
+    for (const c of gs.placement.candidates) {
+      const dist = Math.hypot(world.x - c.x, world.y - c.y);
+      if (dist < HIT && dist < bestDist) { best = c; bestDist = dist; }
+    }
+
+    if (best) {
+      commitPlacement(gs, best, gs.placement.mode);
+      this._updateUI();
+    }
+  }
+
+  _handleCanvasMouseMove(e) {
+    const gs = this.gs;
+    if (!gs || !gs.placement.mode) {
+      if (this.renderer) this.renderer.canvas.style.cursor = 'default';
+      return;
+    }
+
+    const rect   = this.renderer.canvas.getBoundingClientRect();
+    const scaleX = this.renderer.canvas.width  / rect.width;
+    const scaleY = this.renderer.canvas.height / rect.height;
+    const world  = this.renderer.screenToWorld(
+      (e.clientX - rect.left) * scaleX,
+      (e.clientY - rect.top)  * scaleY,
+    );
+
+    const HIT = 32;
+    let hovered = null, bestDist = Infinity;
+    for (const c of gs.placement.candidates) {
+      const dist = Math.hypot(world.x - c.x, world.y - c.y);
+      if (dist < HIT && dist < bestDist) { hovered = c.id; bestDist = dist; }
+    }
+
+    this.renderer.canvas.style.cursor = hovered ? 'pointer' : 'crosshair';
+
+    if (gs.placement.hoveredId !== hovered) {
+      gs.placement.hoveredId = hovered;
+      this.renderer.render(gs);  // re-render to update highlight without a tick
+    }
   }
 
   // ── Game loop ─────────────────────────────────────────────
@@ -89,7 +156,6 @@ class PlantGame {
       this.ui.setSpeedActive(speed);
     }
 
-    // Restart loop
     if (this._loopHandle) cancelAnimationFrame(this._loopHandle);
     if (!this.gs.paused) this._loop(performance.now());
   }
@@ -97,8 +163,8 @@ class PlantGame {
   _loop(now) {
     if (this.gs.paused) return;
 
-    const elapsed    = now - this._lastTick;
-    const tickMs     = TICK_MS_BASE / this._speed;
+    const elapsed = now - this._lastTick;
+    const tickMs  = TICK_MS_BASE / this._speed;
 
     if (elapsed >= tickMs) {
       this._lastTick = now;
@@ -126,11 +192,10 @@ class PlantGame {
     this.selectedBiome = null;
     this.selectedSeed  = null;
 
-    // Reset start screen selections
     document.querySelectorAll('.biome-card').forEach(c => c.classList.remove('selected'));
     document.querySelectorAll('.seed-card' ).forEach(c => c.classList.remove('selected'));
-    document.getElementById('seed-section').style.display  = 'none';
-    document.getElementById('seed-preview').style.display  = 'none';
+    document.getElementById('seed-section').style.display = 'none';
+    document.getElementById('seed-preview').style.display = 'none';
 
     this._showScreen('screen-start');
   }

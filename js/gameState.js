@@ -51,6 +51,19 @@ export function createGameState(biome, seed) {
       leafMass:       0,    // total leaf area
       flowerProgress: 0,    // % toward flowering
       ageInDays:      0,
+      // Spatial graph — nodes are coords relative to (cx, groundY)
+      nodes:      [],       // trunk + leaf node objects
+      nextNodeId: 0,
+      // Persistent root fractal graph — generated once, thickened over time
+      rootGraph: {
+        surface:    [],     // array of root segment objects
+        taproot:    [],
+        structural: [],
+        // Track how many arms/milestone segments have been generated
+        surfaceArms:    0,
+        taprootDepth:   0,  // generation depth currently grown to
+        structuralArms: 0,
+      },
     },
 
     // Capability flags (unlock as plant grows)
@@ -59,6 +72,13 @@ export function createGameState(biome, seed) {
       branches: false,
       leaves:   false,
       flower:   false,
+    },
+
+    // Interactive placement state
+    placement: {
+      mode:       null,   // null | 'trunk' | 'leaf'
+      candidates: [],
+      hoveredId:  null,
     },
 
     log: [],
@@ -75,6 +95,8 @@ export function simulateTick(gs) {
   updateEnvironment(gs);
   computeResourceFlows(gs);
   applyGrowth(gs);
+  updateRootGraph(gs);
+  seedBaseNode(gs);
   checkUnlocks(gs);
   updateHealth(gs);
 }
@@ -114,7 +136,7 @@ function computeResourceFlows(gs) {
 
   // --- Root water uptake
   const rootTotal    = (plant.rootSpread + plant.rootDepth + plant.rootStructural) / 100;
-  const rainCapture  = env.rainfall * plant.rootSpread / 100 * rt.waterBonus * 2.5;
+  const rainCapture  = env.rainfall * plant.rootSpread / 100 * rt.waterBonus * 4.5;
   const tapCapture   = (5 / env.groundwaterDepth) * plant.rootDepth / 100 * rt.waterBonus * 2.0;
   const waterIn      = (rainCapture + tapCapture) * seed.rootEfficiency;
 
@@ -159,57 +181,102 @@ function applyGrowth(gs) {
   const spd = seed.growthRate * 0.6;            // growth per tick (visible per second at ×1)
 
   switch (gs.activeAction) {
-    case 'roots':
+    case 'roots': {
       if (gs.rootType === 'taproot') {
-        plant.rootDepth     = clamp(plant.rootDepth     + spd * rt.waterBonus,     0, 100);
-        plant.rootStructural = clamp(plant.rootStructural + spd * 0.3,             0, 100);
+        plant.rootDepth      = clamp(plant.rootDepth      + spd * rt.waterBonus,       0, 100);
+        plant.rootStructural = clamp(plant.rootStructural + spd * 0.3,                 0, 100);
       } else if (gs.rootType === 'structural') {
-        plant.rootStructural = clamp(plant.rootStructural + spd * rt.structuralBonus, 0, 100);
-        plant.rootSpread    = clamp(plant.rootSpread    + spd * 0.4,              0, 100);
+        plant.rootStructural = clamp(plant.rootStructural + spd * rt.structuralBonus,  0, 100);
+        plant.rootSpread     = clamp(plant.rootSpread     + spd * 0.4,                 0, 100);
+        plant.rootDepth      = clamp(plant.rootDepth      + spd * 0.5,                 0, 100);
       } else {
-        plant.rootSpread    = clamp(plant.rootSpread    + spd * rt.nutrientBonus, 0, 100);
-        plant.rootDepth     = clamp(plant.rootDepth     + spd * 0.2,              0, 100);
+        plant.rootSpread     = clamp(plant.rootSpread     + spd * rt.nutrientBonus,    0, 100);
+        plant.rootDepth      = clamp(plant.rootDepth      + spd * 0.2,                 0, 100);
       }
       break;
-
-    case 'trunk':
+    }
+    case 'trunk': {
       if (!gs.unlocked.trunk) break;
-      const supportRatio = (plant.rootStructural + plant.rootDepth * 0.3) / 20;
-      const trunkGain    = spd * seed.trunkStrength * Math.min(1, supportRatio);
-      plant.trunkHeight  = clamp(plant.trunkHeight + trunkGain,        0, 100);
-      plant.trunkGirth   = clamp(plant.trunkGirth  + trunkGain * 0.4,  0, 100);
+      // supportRatio: total anchor score vs trunk height — roots must grow
+      // with the trunk or it slows. Surface spread counts here too.
+      const totalAnchor  = plant.rootStructural + plant.rootDepth * 0.5 + plant.rootSpread * 0.3;
+      const supportRatio = clamp(totalAnchor / Math.max(8, plant.trunkHeight * 0.8), 0, 1);
+      const trunkGain    = spd * seed.trunkStrength * supportRatio;
+      plant.trunkHeight  = clamp(plant.trunkHeight + trunkGain,       0, 100);
+      plant.trunkGirth   = clamp(plant.trunkGirth  + trunkGain * 0.4, 0, 100);
       break;
-
-    case 'branches':
+    }
+    case 'branches': {
       if (!gs.unlocked.branches) break;
       const trunkSupport = plant.trunkHeight / 20;
       const branchGain   = spd * Math.min(1, trunkSupport);
-      plant.branchCount  = clamp(plant.branchCount  + branchGain * 0.5,  0, 100);
-      plant.branchLength = clamp(plant.branchLength + branchGain,        0, 100);
+      plant.branchCount  = clamp(plant.branchCount  + branchGain * 0.5, 0, 100);
+      plant.branchLength = clamp(plant.branchLength + branchGain,       0, 100);
       break;
-
-    case 'leaves':
+    }
+    case 'leaves': {
       if (!gs.unlocked.leaves) break;
-      const branchBase = Math.max(0.3, plant.branchLength / 15 + plant.trunkHeight / 30);
-      plant.leafMass   = clamp(plant.leafMass + spd * branchBase * seed.leafEfficiency, 0, 100);
+      const branchBase = Math.max(0.2, plant.branchLength / 15 + plant.trunkHeight / 30);
+      // rootBalance: roots must keep pace with leaf mass or leaves grow slowly.
+      // Surface roots count well here — they supply water to leaves.
+      const totalRoots  = plant.rootSpread + plant.rootDepth + plant.rootStructural;
+      const rootBalance = clamp(totalRoots / Math.max(10, plant.leafMass * 1.5), 0, 1);
+      plant.leafMass    = clamp(plant.leafMass + spd * branchBase * seed.leafEfficiency * rootBalance, 0, 100);
       break;
+    }
+  }
+}
+
+// ── Seed base node when seedling first sprouts ────────────
+function seedBaseNode(gs) {
+  if (gs.plant.leafMass >= 0.5 && gs.plant.nodes.length === 0) {
+    gs.plant.nodes.push({
+      type:      'trunk',
+      id:        gs.plant.nextNodeId++,
+      parentId:  null,
+      x:         0,              // relative to cx
+      y:         -6,             // just above ground
+      angle:     -Math.PI / 2,  // pointing straight up
+      length:    6,
+      thickness: 2,
+      children:  [],
+    });
+    addLog(gs, 'A seedling has sprouted — choose where to grow your first trunk segment!', 'good');
   }
 }
 
 // ── Unlock gates ──────────────────────────────────────────
 function checkUnlocks(gs) {
   const { plant } = gs;
-  if (!gs.unlocked.trunk    && plant.rootStructural >= 15 && plant.rootDepth >= 10) {
+
+  // Anchor score: structural roots count fully, tap root depth and
+  // surface spread both count partially (surface roots double as
+  // early anchors in the seedling stage before structural roots develop).
+  const anchorScore = plant.rootStructural
+                    + plant.rootDepth   * 0.5
+                    + plant.rootSpread  * 0.3;  // surface roots help early on
+
+  // Trunk: low threshold so early game flows naturally; surface roots alone
+  // can satisfy it. Balance is enforced by the supportRatio in applyGrowth.
+  if (!gs.unlocked.trunk && anchorScore >= 8) {
     gs.unlocked.trunk = true;
-    addLog(gs, 'Your roots are strong enough to support a trunk.', 'good');
+    addLog(gs, 'Your roots can support a trunk — but keep them growing to match it!', 'good');
   }
-  if (!gs.unlocked.branches && plant.trunkHeight >= 20) {
+  if (!gs.unlocked.trunk && anchorScore >= 4 && gs.tick % 20 === 0) {
+    addLog(gs, `Roots ${Math.round(anchorScore)}/8 anchor strength — almost ready for a trunk.`, '');
+  }
+
+  // Leaves: unlock as soon as the seedling node exists (cotyledons count),
+  // but meaningful photosynthesis only comes once real leaf nodes are placed.
+  if (!gs.unlocked.leaves && plant.nodes.length > 0) {
+    gs.unlocked.leaves = true;
+    addLog(gs, 'The seedling can grow leaves — balance leaf growth with your roots!', 'good');
+  }
+
+  // Branches: once trunk has some height
+  if (!gs.unlocked.branches && plant.trunkHeight >= 16) {
     gs.unlocked.branches = true;
     addLog(gs, 'The trunk is tall enough to grow branches.', 'good');
-  }
-  if (!gs.unlocked.leaves   && (plant.branchLength >= 10 || plant.trunkHeight >= 10)) {
-    gs.unlocked.leaves = true;
-    addLog(gs, 'You can now grow leaves to capture sunlight.', 'good');
   }
 }
 
@@ -231,6 +298,174 @@ function updateHealth(gs) {
   if (gs.health < 30 && gs.tick % 50 === 0) addLog(gs, 'The plant is struggling to survive!', 'danger');
 }
 
+// ── Persistent root fractal graph generation ──────────────
+// Called every tick; only adds new segments when growth milestones are hit.
+// Segments are never re-randomised — they accumulate and thicken over time.
+function updateRootGraph(gs) {
+  const { plant } = gs;
+  const rg = plant.rootGraph;
+
+  // ── Surface roots: one new arm per 12 units of rootSpread ──
+  const targetSurfaceArms = Math.max(0, Math.floor(plant.rootSpread / 12));
+  if (targetSurfaceArms > rg.surfaceArms) {
+    const newArms = targetSurfaceArms - rg.surfaceArms;
+    for (let a = 0; a < newArms; a++) {
+      const armIndex = rg.surfaceArms + a;
+      // Alternate left/right, fan outward from nearly horizontal
+      const side = armIndex % 2 === 0 ? 1 : -1;
+      const fan  = Math.floor(armIndex / 2);
+      // In canvas coords: 0=right, PI/2=down, PI=left
+      // Surface roots must go INTO the ground but stay SHALLOW:
+      //   first arm:  ~8° below horizontal  (0.14 rad from horizontal)
+      //   each pair fans 12° steeper, max ~30° below horizontal (0.52 rad)
+      const dipAngle = Math.min(0.52, 0.14 + fan * 0.21); // radians below horizontal
+      const baseAngle = side > 0
+        ? dipAngle              // right side: small positive angle (slightly below horiz)
+        : Math.PI - dipAngle;   // left side: mirrored (just past PI, slightly below horiz)
+      const segLen = 20 + plant.rootSpread * 2.0;
+      const segs = _buildRootSegments(0, 0, baseAngle, segLen, 3, 1.4, 'surface', armIndex);
+      rg.surface.push(...segs);
+    }
+    rg.surfaceArms = targetSurfaceArms;
+  }
+
+  // ── Tap root: grow one more fractal depth level per 25 units of rootDepth ──
+  const targetDepth = Math.min(4, 1 + Math.floor(plant.rootDepth / 22));
+  if (targetDepth > rg.taprootDepth) {
+    // Clear and rebuild with deeper recursion (tap root replaces in-place)
+    rg.taproot = [];
+    const rootLen = plant.rootDepth * 2.6;
+    const segs = _buildRootSegments(0, 0, Math.PI / 2, rootLen, targetDepth, 2.2, 'taproot', 0);
+    rg.taproot.push(...segs);
+    rg.taprootDepth = targetDepth;
+  }
+
+  // ── Structural roots: one new arm per 15 units of rootStructural ──
+  const targetStructArms = Math.max(0, Math.floor(plant.rootStructural / 15));
+  if (targetStructArms > rg.structuralArms) {
+    const newArms = targetStructArms - rg.structuralArms;
+    for (let a = 0; a < newArms; a++) {
+      const armIndex = rg.structuralArms + a;
+      const side  = armIndex % 2 === 0 ? 1 : -1;
+      const fan   = Math.floor(armIndex / 2);
+      // Structural: steeper downward angle than surface (30-60° below horizontal)
+      const baseAngle = side > 0
+        ? 0.5  + fan * 0.28           // right: ~29° to ~45° below horizontal
+        : Math.PI - 0.5 - fan * 0.28; // left mirrored
+      const segLen = 16 + plant.rootStructural * 0.9;
+      const segs = _buildRootSegments(0, 0, baseAngle, segLen, 2, 2.8, 'structural', armIndex);
+      rg.structural.push(...segs);
+    }
+    rg.structuralArms = targetStructArms;
+  }
+
+  // ── Thicken all existing segments proportionally to growth ──
+  const surfScale  = 0.012 + plant.rootSpread    / 3000;
+  const tapScale   = 0.018 + plant.rootDepth     / 2500;
+  const struScale  = 0.020 + plant.rootStructural / 2200;
+  rg.surface.forEach(s    => { s.width = Math.min(s.width + surfScale, s.maxWidth); });
+  rg.taproot.forEach(s    => { s.width = Math.min(s.width + tapScale,  s.maxWidth); });
+  rg.structural.forEach(s => { s.width = Math.min(s.width + struScale, s.maxWidth); });
+}
+
+/**
+ * Build a list of root segment objects using a seeded pseudo-random walk.
+ * All randomness is determined by (armSeed + segment index) so the graph
+ * is stable across ticks.
+ * Returns flat array of {x1,y1,x2,y2,cpx,cpy,width,maxWidth,colA,colB,type}
+ */
+function _buildRootSegments(startX, startY, angle, length, depth, width, rootType, armSeed) {
+  const segments = [];
+  _recurseRoot(startX, startY, angle, length, depth, width, rootType, armSeed, 0, segments);
+  return segments;
+}
+
+function _recurseRoot(x, y, angle, length, depth, width, rootType, armSeed, segIndex, out) {
+  if (depth <= 0 || length < 2.5) return;
+
+  // Seeded pseudo-random: consistent across ticks for same arm
+  const rng  = _seededRand(armSeed * 1000 + segIndex * 37 + depth * 13);
+  const rng2 = _seededRand(armSeed * 1000 + segIndex * 37 + depth * 13 + 7);
+  const rng3 = _seededRand(armSeed * 1000 + segIndex * 37 + depth * 13 + 17);
+
+  // Small natural wobble — tighter for tap root so it stays vertical
+  const wobbleAmt = rootType === 'taproot' ? 0.08 : 0.14;
+  const wobble    = (rng - 0.5) * wobbleAmt;
+  const a         = angle + wobble;
+  const ex        = x + Math.cos(a) * length;
+  const ey        = y + Math.sin(a) * length;
+  // Control point: wobble in lateral direction only (not depth) for surface roots
+  const lateralWobble = rootType === 'surface' ? (rng2 - 0.5) * length * 0.35 : (rng2 - 0.5) * length * 0.22;
+  const depthWobble   = rootType === 'surface' ? (rng3 - 0.5) * length * 0.06 : (rng3 - 0.5) * length * 0.15;
+  const mx  = (x + ex) / 2 + lateralWobble;
+  const my  = (y + ey) / 2 + depthWobble;
+
+  const colours = {
+    surface:    { a: '#c8a060', b: '#a07840' },
+    taproot:    { a: '#7a3a18', b: '#3a1a06' },
+    structural: { a: '#a06030', b: '#5a3018' },
+  }[rootType];
+
+  const maxW = rootType === 'structural' ? width * 1.6
+             : rootType === 'taproot'    ? width * 1.4
+             :                            width * 1.2;
+
+  out.push({
+    x1: x, y1: y, x2: ex, y2: ey,
+    cpx: mx, cpy: my,
+    width:    width * 0.35,   // start thin, thickened by updateRootGraph
+    maxWidth: maxW,
+    colA: colours.a,
+    colB: colours.b,
+    rootType,
+  });
+
+  const childCount = depth > 1 ? 2 : 1;
+  const childLen   = length * 0.60;
+  const childW     = width  * 0.58;
+
+  for (let i = 0; i < childCount; i++) {
+    const fraction = childCount === 1 ? 0 : (i === 0 ? -0.5 : 0.5);
+    let childAngle;
+
+    if (rootType === 'surface') {
+      // Surface roots stay shallow: children fan left/right along the same
+      // horizontal-ish plane. The base angle is near-horizontal so we spread
+      // further in the lateral (horizontal) direction only — NO downward bias.
+      // Fan children ±20° around the parent's current shallow angle.
+      childAngle = a + fraction * 0.35;
+      // Clamp so surface roots never go below 70° from vertical (i.e. stay
+      // within 20° of horizontal). In canvas: angle must stay < PI*0.35 (right)
+      // or > PI*0.65 (left). Clamp toward horizontal (0 or PI).
+      const isRight = Math.cos(childAngle) > 0;
+      const maxDip  = 0.38; // ~22° below horizontal max
+      if (isRight) childAngle = Math.min(childAngle, maxDip);
+      else          childAngle = Math.max(childAngle, Math.PI - maxDip);
+
+    } else if (rootType === 'taproot') {
+      // Tap root: children stay near-vertical, slight spread
+      childAngle = a + fraction * 0.18;
+      // Bias toward PI/2 (straight down) strongly
+      childAngle = childAngle * 0.25 + (Math.PI / 2) * 0.75;
+
+    } else {
+      // Structural: medium diagonal — fan moderately, drift somewhat downward
+      childAngle = a + fraction * 0.28;
+      // Soft bias toward downward without going vertical
+      const target = a + 0.20; // drift slightly steeper each generation
+      childAngle = childAngle * 0.80 + target * 0.20;
+    }
+
+    _recurseRoot(ex, ey, childAngle, childLen, depth - 1, childW, rootType, armSeed, segIndex * 10 + i + 1, out);
+  }
+}
+
+/** Simple deterministic hash → 0..1 float */
+function _seededRand(seed) {
+  const s = Math.sin(seed + 1) * 43758.5453;
+  return s - Math.floor(s);
+}
+
 // ── Helpers ───────────────────────────────────────────────
 export function addLog(gs, msg, type = '') {
   gs.log.unshift({ day: gs.day, msg, type });
@@ -243,3 +478,112 @@ function vary(val, delta = 0.03) {
 
 function clamp(v, lo, hi) { return Math.max(lo, Math.min(hi, v)); }
 function lerp(a, b, t)    { return a + (b - a) * t; }
+
+// ── Placement: compute clickable candidate spots ──────────
+export function computePlacementCandidates(gs, type) {
+  const candidates = [];
+  const nodes = gs.plant.nodes;
+
+  if (type === 'trunk') {
+    // Offer new trunk segments off any trunk tip with no trunk child yet
+    nodes.filter(n => n.type === 'trunk').forEach(node => {
+      const hasTrunkChild = node.children.some(
+        cid => nodes.find(n => n.id === cid)?.type === 'trunk'
+      );
+      if (hasTrunkChild) return;
+      // Three angle options: left, straight, right relative to current angle
+      const segLen = Math.max(16, 12 + gs.plant.trunkHeight * 0.25);
+      [{ delta: -0.45, label: '↖ Left' }, { delta: 0, label: '↑ Straight' }, { delta: 0.45, label: '↗ Right' }]
+        .forEach(({ delta, label }) => {
+          const angle = node.angle + delta;
+          candidates.push({
+            id:           `trunk-${node.id}-${delta}`,
+            parentNodeId: node.id,
+            x:            node.x + Math.cos(angle) * segLen,
+            y:            node.y + Math.sin(angle) * segLen,
+            angle,
+            length:       segLen,
+            label,
+          });
+        });
+    });
+  }
+
+  if (type === 'leaf') {
+    // Offer leaf spots on any trunk node with fewer than 2 leaf children
+    nodes.filter(n => n.type === 'trunk').forEach(node => {
+      const leafCount = node.children.filter(
+        cid => nodes.find(n => n.id === cid)?.type === 'leaf'
+      ).length;
+      if (leafCount >= 2) return;
+      const leafSize = Math.max(10, 8 + gs.plant.leafMass * 0.35);
+      [{ side: -1, label: '← Left leaf' }, { side: 1, label: '→ Right leaf' }]
+        .forEach(({ side, label }) => {
+          const alreadyHasSide = node.children.some(cid => {
+            const c = nodes.find(n => n.id === cid);
+            return c?.type === 'leaf' && (side < 0 ? c.x < node.x : c.x >= node.x);
+          });
+          if (alreadyHasSide) return;
+          const leafAngle = node.angle + side * (Math.PI * 0.55);
+          const offset    = leafSize * 1.2;
+          candidates.push({
+            id:           `leaf-${node.id}-${side}`,
+            parentNodeId: node.id,
+            x:            node.x + Math.cos(leafAngle) * offset,
+            y:            node.y + Math.sin(leafAngle) * offset,
+            angle:        leafAngle,
+            size:         leafSize,
+            label,
+          });
+        });
+    });
+  }
+
+  return candidates;
+}
+
+// ── Placement: commit a chosen candidate into the graph ───
+export function commitPlacement(gs, candidate, type) {
+  const parent = gs.plant.nodes.find(n => n.id === candidate.parentNodeId);
+  if (!parent) return;
+
+  const newNode = {
+    type,
+    id:        gs.plant.nextNodeId++,
+    parentId:  parent.id,
+    x:         candidate.x,
+    y:         candidate.y,
+    angle:     candidate.angle,
+    length:    candidate.length  || 14,
+    thickness: type === 'trunk' ? Math.max(2, 2 + gs.plant.trunkGirth * 0.06) : 0,
+    size:      type === 'leaf'  ? (candidate.size || 12) : 0,
+    children:  [],
+  };
+
+  gs.plant.nodes.push(newNode);
+  parent.children.push(newNode.id);
+
+  // Update scalars so simulation formulas stay accurate
+  if (type === 'trunk') {
+    gs.plant.trunkHeight = clamp(gs.plant.trunkHeight + 8, 0, 100);
+    gs.plant.trunkGirth  = clamp(gs.plant.trunkGirth  + 3, 0, 100);
+    // One-time resource cost
+    gs.energy    = clamp(gs.energy    - 12, 0, 100);
+    gs.nutrients = clamp(gs.nutrients - 10, 0, 100);
+    gs.water     = clamp(gs.water     -  6, 0, 100);
+    addLog(gs, `Trunk segment placed (${candidate.label}).`, '');
+  }
+  if (type === 'leaf') {
+    gs.plant.leafMass    = clamp(gs.plant.leafMass    + 6,  0, 100);
+    gs.plant.branchLength = clamp(gs.plant.branchLength + 4, 0, 100);
+    gs.energy    = clamp(gs.energy    -  8, 0, 100);
+    gs.water     = clamp(gs.water     -  5, 0, 100);
+    gs.nutrients = clamp(gs.nutrients -  4, 0, 100);
+    addLog(gs, `Leaf cluster placed (${candidate.label}).`, 'good');
+  }
+
+  // Exit placement mode
+  gs.placement.mode       = null;
+  gs.placement.candidates = [];
+  gs.placement.hoveredId  = null;
+}
