@@ -179,10 +179,10 @@ export class UI {
     const maxH = gs.seed.maxHeight;
     set('stat-trunk',    `${Math.round(p.trunkHeight / 100 * maxH)}m`);
     // Show anchor score vs unlock threshold when trunk not yet unlocked
-    const anchorScore = Math.round(p.rootStructural + p.rootDepth * 0.5);
+    const anchorScore = Math.round(p.rootStructural + p.rootDepth * 0.5 + p.rootSpread * 0.3);
     set('stat-roots',    gs.unlocked.trunk
       ? `${Math.round((p.rootDepth + p.rootSpread) / 2)}%`
-      : `⚓ ${Math.min(anchorScore, 20)}/20`);
+      : `⚓ ${Math.min(anchorScore, 8)}/8`);
     set('stat-leaves',   `${Math.round(p.leafMass)}%`);
     set('stat-branches', Math.floor(p.branchCount / 8) + (p.branchCount > 0 ? 1 : 0));
     set('stat-sun',      `${Math.round(gs.env.sunlight * 100)}%`);

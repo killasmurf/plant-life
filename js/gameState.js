@@ -186,8 +186,11 @@ function applyGrowth(gs) {
     }
     case 'trunk': {
       if (!gs.unlocked.trunk) break;
-      const supportRatio = (plant.rootStructural + plant.rootDepth * 0.3) / 20;
-      const trunkGain    = spd * seed.trunkStrength * Math.min(1, supportRatio);
+      // supportRatio: total anchor score vs trunk height — roots must grow
+      // with the trunk or it slows. Surface spread counts here too.
+      const totalAnchor  = plant.rootStructural + plant.rootDepth * 0.5 + plant.rootSpread * 0.3;
+      const supportRatio = clamp(totalAnchor / Math.max(8, plant.trunkHeight * 0.8), 0, 1);
+      const trunkGain    = spd * seed.trunkStrength * supportRatio;
       plant.trunkHeight  = clamp(plant.trunkHeight + trunkGain,       0, 100);
       plant.trunkGirth   = clamp(plant.trunkGirth  + trunkGain * 0.4, 0, 100);
       break;
@@ -202,8 +205,12 @@ function applyGrowth(gs) {
     }
     case 'leaves': {
       if (!gs.unlocked.leaves) break;
-      const branchBase = Math.max(0.3, plant.branchLength / 15 + plant.trunkHeight / 30);
-      plant.leafMass   = clamp(plant.leafMass + spd * branchBase * seed.leafEfficiency, 0, 100);
+      const branchBase = Math.max(0.2, plant.branchLength / 15 + plant.trunkHeight / 30);
+      // rootBalance: roots must keep pace with leaf mass or leaves grow slowly.
+      // Surface roots count well here — they supply water to leaves.
+      const totalRoots  = plant.rootSpread + plant.rootDepth + plant.rootStructural;
+      const rootBalance = clamp(totalRoots / Math.max(10, plant.leafMass * 1.5), 0, 1);
+      plant.leafMass    = clamp(plant.leafMass + spd * branchBase * seed.leafEfficiency * rootBalance, 0, 100);
       break;
     }
   }
@@ -230,24 +237,35 @@ function seedBaseNode(gs) {
 // ── Unlock gates ──────────────────────────────────────────
 function checkUnlocks(gs) {
   const { plant } = gs;
-  // Trunk unlocks when roots provide enough anchor support.
-  // Structural roots count fully; tap root depth also contributes.
-  const anchorScore = plant.rootStructural + plant.rootDepth * 0.5;
-  if (!gs.unlocked.trunk && anchorScore >= 20) {
+
+  // Anchor score: structural roots count fully, tap root depth and
+  // surface spread both count partially (surface roots double as
+  // early anchors in the seedling stage before structural roots develop).
+  const anchorScore = plant.rootStructural
+                    + plant.rootDepth   * 0.5
+                    + plant.rootSpread  * 0.3;  // surface roots help early on
+
+  // Trunk: low threshold so early game flows naturally; surface roots alone
+  // can satisfy it. Balance is enforced by the supportRatio in applyGrowth.
+  if (!gs.unlocked.trunk && anchorScore >= 8) {
     gs.unlocked.trunk = true;
-    addLog(gs, 'Your roots are strong enough to support a trunk!', 'good');
+    addLog(gs, 'Your roots can support a trunk — but keep them growing to match it!', 'good');
   }
-  // Hint once roots are partway there
-  if (!gs.unlocked.trunk && anchorScore >= 10 && gs.tick % 30 === 0) {
-    addLog(gs, `Roots ${Math.round(anchorScore)}/20 anchor strength — keep growing structural or tap roots.`, '');
+  if (!gs.unlocked.trunk && anchorScore >= 4 && gs.tick % 20 === 0) {
+    addLog(gs, `Roots ${Math.round(anchorScore)}/8 anchor strength — almost ready for a trunk.`, '');
   }
-  if (!gs.unlocked.branches && plant.trunkHeight >= 20) {
+
+  // Leaves: unlock as soon as the seedling node exists (cotyledons count),
+  // but meaningful photosynthesis only comes once real leaf nodes are placed.
+  if (!gs.unlocked.leaves && plant.nodes.length > 0) {
+    gs.unlocked.leaves = true;
+    addLog(gs, 'The seedling can grow leaves — balance leaf growth with your roots!', 'good');
+  }
+
+  // Branches: once trunk has some height
+  if (!gs.unlocked.branches && plant.trunkHeight >= 16) {
     gs.unlocked.branches = true;
     addLog(gs, 'The trunk is tall enough to grow branches.', 'good');
-  }
-  if (!gs.unlocked.leaves   && (plant.branchLength >= 10 || plant.trunkHeight >= 10)) {
-    gs.unlocked.leaves = true;
-    addLog(gs, 'You can now grow leaves to capture sunlight.', 'good');
   }
 }
 
