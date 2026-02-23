@@ -43,7 +43,7 @@ class PlantGame {
       return;
     }
 
-    this.gs = createGameState(this.selectedBiome, this.selectedSeed);
+    this.gs = createGameState(this.selectedBiome, this.selectedSeed, { ...this.ui.settings });
     addLog(this.gs, `A ${this.selectedSeed.name} seed settles into ${this.selectedBiome.name} soil.`, 'good');
     addLog(this.gs, 'Grow roots first to gather water and anchor yourself.', '');
 
@@ -62,6 +62,7 @@ class PlantGame {
     this._showScreen('screen-game');
     this.renderer.render(this.gs);
     this.gs.paused = true;
+    this._lifecompleteShown = false;
   }
 
   // ── Placement mode ────────────────────────────────────────
@@ -178,6 +179,11 @@ class PlantGame {
   _updateUI() {
     if (!this.gs || !this.renderer || !this.ui) return;
     this.renderer.render(this.gs);
+
+    if (this.gs.lifeComplete && !this._lifecompleteShown) {
+      this._lifecompleteShown = true;
+      this.setSpeed(-1);
+    }
     this.ui.updateResourceBars(this.gs);
     this.ui.updateStats(this.gs);
     this.ui.updateLog(this.gs);
