@@ -112,6 +112,20 @@ export class PlantRenderer {
 
     this._drawSun(gs);
     this._drawClouds(gs);
+
+    // Weather event sky tint
+    if (gs.activeWeatherEvent) {
+      const tints = {
+        drought: 'rgba(180,100,20,0.12)',
+        flood:   'rgba(20,80,160,0.15)',
+        storm:   'rgba(60,60,80,0.20)',
+      };
+      const tint = tints[gs.activeWeatherEvent];
+      if (tint) {
+        this.ctx.fillStyle = tint;
+        this.ctx.fillRect(0, 0, this.W, this.groundY);
+      }
+    }
   }
 
   _drawSun(gs) {
@@ -233,6 +247,31 @@ export class PlantRenderer {
       const alpha = Math.min(0.90, 0.30 + p.rootStructural / 60);
       ctx.globalAlpha = alpha;
       this._drawRootSegments(rg.structural, cx, gY + 8);
+      ctx.globalAlpha = 1;
+    }
+
+    // Mycelium network: faint white thread web below surface (Phase 3.1)
+    if (gs.mycorrhizalColonisation > 0.15) {
+      const alpha = gs.mycorrhizalColonisation * 0.18;
+      ctx.globalAlpha = alpha;
+      ctx.strokeStyle = '#e8f0d8';
+      ctx.lineWidth = 0.4;
+      ctx.setLineDash([2, 4]);
+      const spread = p.rootSpread * 2.5;
+      for (let i = 0; i < 6; i++) {
+        const angle = (i / 6) * Math.PI * 2;
+        const ex = cx + Math.cos(angle) * spread;
+        const ey = gY + 20 + Math.abs(Math.sin(angle)) * 40;
+        ctx.beginPath();
+        ctx.moveTo(cx, gY + 10);
+        ctx.quadraticCurveTo(
+          cx + Math.cos(angle) * spread * 0.5,
+          gY + 30,
+          ex, ey
+        );
+        ctx.stroke();
+      }
+      ctx.setLineDash([]);
       ctx.globalAlpha = 1;
     }
   }
@@ -441,8 +480,15 @@ export class PlantRenderer {
 
       // Main trunk segment
       const grad = ctx.createLinearGradient(startX, startY, endX, endY);
-      grad.addColorStop(0, '#5c3a1e');
-      grad.addColorStop(1, '#7a4a28');
+      const xi = gs.xylemIntegrity;
+      const r1 = Math.round(92  * xi + 100 * (1 - xi));
+      const g1 = Math.round(58  * xi + 90  * (1 - xi));
+      const b1 = Math.round(30  * xi + 85  * (1 - xi));
+      const r2 = Math.round(122 * xi + 130 * (1 - xi));
+      const g2 = Math.round(74  * xi + 110 * (1 - xi));
+      const b2 = Math.round(40  * xi + 100 * (1 - xi));
+      grad.addColorStop(0, `rgb(${r1},${g1},${b1})`);
+      grad.addColorStop(1, `rgb(${r2},${g2},${b2})`);
       ctx.strokeStyle = grad;
       ctx.lineWidth   = Math.max(1.5, node.thickness);
       ctx.lineCap     = 'round';
@@ -480,6 +526,35 @@ export class PlantRenderer {
       }
     });
 
+
+    // Dormancy frost tint over the whole plant area
+    if (gs.dormancyDepth > 0.3) {
+      const frostAlpha = gs.dormancyDepth * 0.12;
+      ctx.globalAlpha = frostAlpha;
+      ctx.fillStyle = '#c8d8e8';
+      const p = gs.plant;
+      const trunkTopY = originY - p.trunkHeight * 2.5;
+      ctx.fillRect(originX - 200, trunkTopY - 50, 400, Math.abs(trunkTopY - originY) + 100);
+      ctx.globalAlpha = 1;
+    }
+    // Growth ring annotation on the lowest trunk segment (Phase 2.4)
+    if (gs.plant.growthRings > 0 && nodes.length > 0) {
+      const base = nodes.find(n => n.type === 'trunk' && n.parentId === null);
+      if (base) {
+        const bx = originX + base.x;
+        const by = originY + base.y;
+        const girth = Math.max(4, base.thickness);
+        // Draw concentric arc hints at base of trunk
+        for (let r = 0; r < Math.min(gs.plant.growthRings, 5); r++) {
+          ctx.beginPath();
+          ctx.arc(bx, by, girth + r * 2, Math.PI * 0.8, Math.PI * 1.2);
+          ctx.strokeStyle = 'rgba(180,130,80,' + (0.35 - r * 0.05) + ')';
+          ctx.lineWidth = 0.8;
+          ctx.stroke();
+        }
+      }
+    }
+
     // Draw leaf clusters as fractal leaf sprays
     // Leaves can attach directly to trunk nodes (early game) or to branch tips
     const leafAlpha = season === 3 ? 0.4 : 0.85;
@@ -492,7 +567,44 @@ export class PlantRenderer {
       ctx.globalAlpha = leafAlpha;
       this._drawFractalLeaf(lx, ly, node.angle, r, season, gs.plant.leafMass);
       ctx.globalAlpha = 1;
+
+      // Herbivory damage: ragged brown patches on leaves
+      if (gs.herbivoreEvent && gs.herbivorePressure > 0.2) {
+        const dmgAlpha = gs.herbivorePressure * 0.5;
+        ctx.globalAlpha = dmgAlpha;
+        ctx.fillStyle = '#5a3010';
+        ctx.beginPath();
+        ctx.ellipse(lx + r * 0.3, ly - r * 0.2, r * 0.35, r * 0.25, 0.8, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      }
     });
+
+    // Draw flower indicators when in bloom
+    if (gs.flowering) {
+      nodes.filter(n => n.type === 'leaf').forEach(node => {
+        const lx = originX + node.x;
+        const ly = originY + node.y;
+        // Small petal cluster
+        ctx.globalAlpha = 0.85;
+        const flowerColors = ['#ff9eb5', '#ffcce0', '#ff7799'];
+        for (let p = 0; p < 5; p++) {
+          const pa = (p / 5) * Math.PI * 2;
+          const px = lx + Math.cos(pa) * 5;
+          const py = ly + Math.sin(pa) * 5;
+          ctx.fillStyle = flowerColors[p % flowerColors.length];
+          ctx.beginPath();
+          ctx.ellipse(px, py, 3, 2, pa, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        // Centre
+        ctx.fillStyle = '#ffe066';
+        ctx.beginPath();
+        ctx.arc(lx, ly, 2.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.globalAlpha = 1;
+      });
+    }
   }
 
   /**

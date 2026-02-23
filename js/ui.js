@@ -2,7 +2,7 @@
 // ui.js — DOM UI builder and updater
 // ============================================================
 
-import { BIOMES, SEEDS, ROOT_TYPES } from './data.js';
+import { BIOMES, SEEDS, ROOT_TYPES, DEFAULT_SETTINGS, SETTINGS_META } from './data.js';
 
 const SEASONS = ['Spring', 'Summer', 'Autumn', 'Winter'];
 
@@ -11,13 +11,16 @@ const RESOURCES = [
   { key: 'water',     label: 'Water',     icon: '💧',  col: 'var(--water-col)'     },
   { key: 'o2',        label: 'Oxygen',    icon: '🌬️', col: 'var(--o2-col)'        },
   { key: 'co2',       label: 'CO₂',       icon: '💨',  col: 'var(--co2-col)'       },
-  { key: 'nutrients', label: 'Nutrients', icon: '🌱',  col: 'var(--nutrients-col)' },
+  { key: 'nitrogen',   label: 'Nitrogen',   icon: '🌿', col: 'var(--nutrients-col)'  },
+  { key: 'phosphorus', label: 'Phosphorus', icon: '🔴', col: '#c0784a'               },
+  { key: 'potassium',  label: 'Potassium',  icon: '🟡', col: '#c0b040'               },
   { key: 'health',    label: 'Health',    icon: '❤️',  col: 'var(--health-col)'    },
 ];
 
 export class UI {
   constructor(game) {
     this.game = game;
+    this.settings = { ...DEFAULT_SETTINGS };
     this._buildStartScreen();
     this._buildResourceBars();
     this._buildStatGrid();
@@ -29,6 +32,7 @@ export class UI {
   // ── Start Screen ─────────────────────────────────────────
   _buildStartScreen() {
     this._buildBiomeCards();
+    this._buildSettingsPanel();
   }
 
   _buildBiomeCards() {
@@ -157,7 +161,18 @@ export class UI {
       { id: 'stat-sun',      label: 'Sunlight'     },
       { id: 'stat-rain',     label: 'Rainfall'     },
       { id: 'stat-temp',     label: 'Temperature'  },
+      { id: 'stat-stomata', label: 'Stomata'      },
+      { id: 'stat-xylem',   label: 'Xylem'        },
+      { id: 'stat-tempeff', label: 'Temp Eff.'    },
       { id: 'stat-day',      label: 'Day'          },
+      { id: 'stat-dormancy', label: 'Dormancy'     },
+      { id: 'stat-flowers', label: 'Flowers'  },
+      { id: 'stat-seeds',   label: 'Seeds'    },
+      { id: 'stat-rings',   label: 'Growth Rings' },
+      { id: 'stat-phloem',  label: 'Phloem Flow'  },
+      { id: 'stat-myco',    label: 'Mycorrhizae'  },
+      { id: 'stat-herbivore',   label: 'Herbivores'    },
+      { id: 'stat-weather',     label: 'Weather Event' },
     ];
     stats.forEach(s => {
       const div = document.createElement('div');
@@ -188,7 +203,33 @@ export class UI {
     set('stat-sun',      `${Math.round(gs.env.sunlight * 100)}%`);
     set('stat-rain',     `${Math.round(gs.env.rainfall * 100)}%`);
     set('stat-temp',     `${Math.round(gs.env.temperature)}°C`);
+    set('stat-stomata', Math.round(gs.stomata * 100) + '%');
+    set('stat-xylem',   Math.round(gs.xylemIntegrity * 100) + '%');
+    const tempOpt = gs.seed.tempOptimum ?? 22;
+    const delta = gs.env.temperature - tempOpt;
+    const tempEff = Math.max(0, Math.exp(-(delta * delta) / (2 * 8 * 8)));
+    set('stat-tempeff', `${Math.round(tempEff * 100)}%`);
     set('stat-day',      gs.day);
+
+    set('stat-dormancy', gs.dormant
+      ? '❄️ ' + Math.round(gs.dormancyDepth * 100) + '%'
+      : (gs.dormancyDepth > 0.05 ? 'Waking…' : '—'));
+    set('stat-flowers', gs.flowering ? '🌸 Open' : (gs.plant.flowerProgress > 0 ? Math.round(gs.plant.flowerProgress) + '%' : '—'));
+    set('stat-seeds',   gs.plant.seedsProduced || '—');
+
+    const rings = gs.plant.growthRings ?? 0;
+    set('stat-rings',  rings > 0 ? rings : '—');
+    const phloemFlow = Math.min(1, gs.plant.leafMass / 40);
+    set('stat-phloem', Math.round(phloemFlow * 100) + '%');
+    set('stat-myco', gs.mycorrhizalColonisation > 0
+      ? '🍄 ' + Math.round(gs.mycorrhizalColonisation * 100) + '%'
+      : '—');
+    set('stat-herbivore', gs.herbivoreEvent
+      ? '🐛 ' + Math.round(gs.herbivorePressure * 100) + '%'
+      : '—');
+    set('stat-weather', gs.activeWeatherEvent
+      ? '⚠️ ' + gs.activeWeatherEvent + ' (' + Math.round(gs.weatherEventTimer / 10) + 'd)'
+      : '—');
 
     const timeEl = document.getElementById('time-display');
     if (timeEl) timeEl.textContent = `Day ${gs.day} · ${SEASONS[gs.season]}`;
@@ -337,5 +378,82 @@ export class UI {
   updateBiomeLabel(gs) {
     const el = document.getElementById('biome-label');
     if (el) el.textContent = `${gs.biome.icon} ${gs.biome.name} · ${gs.seed.name}`;
+  }
+
+  // ── Biology Settings Panel ────────────────────────────────
+  _buildSettingsPanel() {
+    const header = document.getElementById('settings-toggle');
+    const body   = document.getElementById('settings-body');
+    const arrow  = document.getElementById('settings-arrow');
+    if (header) {
+      header.addEventListener('click', () => {
+        const open = body.style.display !== 'none';
+        body.style.display = open ? 'none' : 'block';
+        arrow?.classList.toggle('open', !open);
+      });
+    }
+
+    document.getElementById('preset-full')?.addEventListener('click', () => {
+      this._applyPreset('full');
+    });
+    document.getElementById('preset-easy')?.addEventListener('click', () => {
+      this._applyPreset('easy');
+    });
+
+    const container = document.getElementById('settings-toggles');
+    if (!container) return;
+    container.innerHTML = '';
+
+    SETTINGS_META.forEach(meta => {
+      const row = document.createElement('div');
+      row.className = 'setting-row';
+      row.innerHTML = `
+        <label class="setting-toggle">
+          <input type="checkbox" id="setting-${meta.key}" ${this.settings[meta.key] ? 'checked' : ''}>
+          <span class="toggle-slider"></span>
+        </label>
+        <div class="setting-info">
+          <div class="setting-label">${meta.label}</div>
+          <div class="setting-desc">${meta.desc}</div>
+        </div>
+      `;
+      container.appendChild(row);
+
+      row.querySelector('input').addEventListener('change', (e) => {
+        this.settings[meta.key] = e.target.checked;
+        document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+      });
+    });
+  }
+
+  _applyPreset(name) {
+    const presets = {
+      full: { ...DEFAULT_SETTINGS },
+      easy: {
+        stomatalRegulation: false,
+        npkNutrients:       false,
+        hydraulicFailure:   false,
+        tempOptima:         false,
+        flowering:          true,
+        lifeCycles:         false,
+        cambiumGrowth:      false,
+        mycorrhizae:        false,
+        herbivory:          false,
+        weatherEvents:      false,
+      },
+    };
+
+    const preset = presets[name];
+    if (!preset) return;
+
+    this.settings = { ...preset };
+
+    Object.entries(preset).forEach(([key, val]) => {
+      const el = document.getElementById(`setting-${key}`);
+      if (el) el.checked = val;
+    });
+
+    document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(`preset-${name}`)?.classList.add('active');
   }
 }
